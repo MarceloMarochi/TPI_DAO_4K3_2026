@@ -40,16 +40,31 @@ frontend/
 
 ## Puesta en marcha del backend
 
-Requiere Python 3.12 o superior.
+Requiere Python 3.12 o superior. La primera vez se crea el entorno virtual y se instalan las dependencias.
 
-```bash
+**Windows (PowerShell):**
+
+```powershell
 cd backend
-python -m venv .venv
-# Windows:      .venv\Scripts\activate
-# Linux / Mac:  source .venv/bin/activate
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 pytest
 ```
+
+> En Windows conviene usar `py` y no `python`: `python` suele abrir el acceso directo de la Microsoft Store ("Python was not found"). Si PowerShell no deja ejecutar `Activate.ps1`, correr una vez `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+**Linux / Mac:**
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest
+```
+
+Con el entorno activado (el prompt muestra `(.venv)`), `python` ya apunta al del entorno y los comandos siguientes funcionan igual en todos los sistemas.
 
 Crear la base `backend/ventas.sqlite3` con los datos de ejemplo de `backend/datos_ejemplo/`:
 

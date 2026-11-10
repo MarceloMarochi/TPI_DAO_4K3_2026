@@ -10,7 +10,13 @@ Importes y tasas viajan como texto decimal ("1000.00"); fechas en ISO 8601 con z
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from app.negocio.comunes import validar_total_esperado
+
+CantidadPositiva = Annotated[int, Field(strict=True, gt=0)]
+MinimoNoNegativo = Annotated[int, Field(strict=True, ge=0)]
 
 
 class Esquema(BaseModel):
@@ -95,14 +101,14 @@ class Existencia(BaseModel):
 
 
 class MinimoEntrada(Esquema):
-    minimo: int
+    minimo: MinimoNoNegativo
 
 
 class IngresoEntrada(Esquema):
     numero: str
     producto_codigo: str
     proveedor_codigo: str
-    cantidad: int
+    cantidad: CantidadPositiva
     costo_unitario: Decimal
 
 
@@ -129,7 +135,7 @@ class ResultadoImportacion(BaseModel):
 class NecesidadEntrada(Esquema):
     destino_codigo: str
     producto_codigo: str
-    cantidad: int
+    cantidad: CantidadPositiva
 
 
 class OrdenEntrada(Esquema):
@@ -166,8 +172,8 @@ class OrdenResumen(BaseModel):
 
 
 class LineaBultoEntrada(Esquema):
-    detalle_id: int
-    cantidad: int
+    detalle_id: CantidadPositiva
+    cantidad: CantidadPositiva
 
 
 class BultoEntrada(Esquema):
@@ -248,7 +254,7 @@ class MedioPago(BaseModel):
 
 class ItemVenta(Esquema):
     producto_codigo: str
-    cantidad: int
+    cantidad: CantidadPositiva
 
 
 class CotizacionEntrada(Esquema):
@@ -259,9 +265,15 @@ class CotizacionEntrada(Esquema):
 
 class VentaEntrada(CotizacionEntrada):
     numero: str
-    total_esperado: Decimal | None = Field(
-        default=None, description="Total que vio el usuario al cotizar; si cambió, la venta no se guarda (409)."
+    total_esperado: Decimal = Field(
+        ge=0, decimal_places=2, allow_inf_nan=False,
+        description="Total obligatorio revisado al cotizar; si cambió, no se guarda la venta (409).",
     )
+
+    @field_validator("total_esperado", mode="before")
+    @classmethod
+    def validar_total(cls, valor):
+        return validar_total_esperado(valor)
 
 
 class LineaCotizacion(BaseModel):
@@ -322,8 +334,8 @@ class VentaResumen(BaseModel):
 class DevolucionEntrada(Esquema):
     numero: str
     venta_numero: str
-    detalle_id: int
-    cantidad: int
+    detalle_id: CantidadPositiva
+    cantidad: CantidadPositiva
     apta_reventa: bool
     motivo: str
 

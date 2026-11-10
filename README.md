@@ -19,8 +19,17 @@ El diseño completo (alcance, modelo de clases, reglas de negocio numeradas, rep
 ```
 backend/
   app/
-    negocio/        modelos, State (estados.py), Strategy (pagos.py),
-                    SistemaVentas (sistema.py), errores
+    negocio/
+      catalogo_stock.py    productos, establecimientos, existencias e ingresos simples
+      reposicion.py        órdenes y necesidades
+      bultos.py            bultos, contenido e historial
+      ventas.py            ventas y detalles históricos
+      devoluciones.py      devolución de una línea
+      estados.py           State: transiciones sin efectos aislados
+      pagos.py             Strategy: efectivo y tarjeta
+      servicio_*.py        catálogo, logística, ventas, reportes e importación
+      modelos.py           importaciones compatibles de las clases
+      sistema.py           fachada que delega en los cinco servicios
     inicializar.py  crea la base y carga los datos de ejemplo
     datos/          esquema SQLite, conexión y DAOs
     api/            adaptador HTTP: rutas FastAPI, esquemas y errores
@@ -92,6 +101,8 @@ npm install
 npm run dev
 ```
 
+Verificación del frontend: `npm test` ejecuta las regresiones de confirmación con Node y TypeScript; `npm run build` comprueba tipos y genera la compilación de producción.
+
 La aplicación queda en http://localhost:5173 (Vite redirige `/api` al backend en el puerto 8000).
 
 > **Windows con Smart App Control:** Tailwind está fijado en la versión 4.3.0 a propósito, porque el binario de la 4.3.4 lo bloquea el control de aplicaciones de Windows y Vite se queda colgado sin mostrar errores. Si `npm run dev` no arranca, ver la sección 11.4 del documento maestro.
@@ -106,3 +117,33 @@ La aplicación queda en http://localhost:5173 (Vite redirige `/api` al backend e
 - [x] Fase 5: reportes R1 a R4, PDF con gráfico y comprobante (41 operaciones en la API)
 - [x] Fase 6: frontend React con las cuatro áreas
 - [ ] Fase 7: cierre y demo
+
+## Correcciones y reorganización del 09/11/2026
+
+Se mantiene el alcance de la presentación: ingresos simples al CD, efectivo y tarjeta,
+una línea por devolución y caja derivada de ventas menos devoluciones. No se adopta TP3.1
+ni se modifica el esquema o la base existente.
+
+- El total se distribuye por mayor resto en centavos enteros, con desempate por código de producto.
+- Los reintegros se calculan sobre la cantidad acumulada devuelta. Se conservan los registros
+  anteriores; los centavos adelantados por el algoritmo viejo se compensan sin reintegros negativos.
+- Las cantidades JSON son enteros estrictos: no admiten booleanos, fracciones ni texto. Los CSV
+  mantienen su conversión controlada. Los mínimos admiten cero.
+- `POST /api/ventas` exige `total_esperado` finito, no negativo y con precisión de centavos.
+  Su ausencia o formato inválido devuelve 422; una diferencia contra el servidor devuelve 409.
+- `Bulto` aplica juntos la transición, la evidencia y la acreditación. Se conservan State y
+  las transacciones; ya no hay métodos públicos para acreditar stock o cambiar estados aisladamente.
+- La confirmación conserva una copia inmutable de la solicitud en Zustand. Bloquea cambios,
+  descarte y selección de local mientras se resuelve. Una respuesta perdida, ilegible o 5xx
+  requiere consulta; un 404 permite reenviar exactamente la misma operación. La recuperación
+  compara número, local, medio, total y cantidades. Un número ocupado por otra venta exige una
+  acción explícita antes de generar uno nuevo y volver a cotizar.
+- El estado pendiente sobrevive al cambio de vista. Al cerrar o recargar se solicita la advertencia
+  del navegador; no se agregó persistencia de borradores entre recargas.
+
+Los cinco servicios comparten la conexión de la solicitud y preservan las transacciones completas,
+incluida la importación de CSV. Las reglas monetarias permanecen en el dominio y el SQL en los DAOs.
+`modelos.py` y `sistema.py` quedan como puntos de acceso pequeños para mantener compatibilidad.
+
+Validación: suite backend con pytest, regresiones frontend con `npm test` y compilación con
+`npm run build`. Las pruebas usan datos temporales o en memoria, no `backend/ventas.sqlite3`.

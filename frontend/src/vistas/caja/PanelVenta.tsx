@@ -9,20 +9,21 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAccion, useConsulta } from "@/hooks/useConsulta"
-import { api, ErrorApi, ErrorRed, urlPdf } from "@/lib/api"
+import { api, urlPdf } from "@/lib/api"
 import { ETIQUETA_MEDIO, importe, tasa } from "@/lib/formato"
-import type { CodigoMedio, Cotizacion, Producto, Venta } from "@/lib/tipos"
+import type { CodigoMedio, Cotizacion, Producto } from "@/lib/tipos"
 import { useContexto } from "@/store/contexto"
 
 export function PanelVenta({ localCodigo, productos }: { localCodigo: string; productos: Producto[] }) {
-  const { borrador, agregarItem, cambiarCantidad, quitarItem, cambiarMedio, descartarBorrador } = useContexto()
+  const { borrador, agregarItem, cambiarCantidad, quitarItem, cambiarMedio, descartarBorrador,
+    operacion, confirmada, errorVenta, confirmarVenta, consultarConfirmacion, reintentarConfirmacion,
+    resolverNumeroOcupado } = useContexto()
+  const bloqueada = operacion !== null
   const existencias = useConsulta(() => api.existencias({ sucursal: localCodigo }), [localCodigo])
   const medios = useConsulta(() => api.mediosPago(), [])
   const [busqueda, setBusqueda] = useState("")
-  const [cotizacion, setCotizacion] = useState<{ datos: Cotizacion; version: number } | null>(null)
-  const [confirmada, setConfirmada] = useState<Venta | null>(null)
+  const [cotizacion, setCotizacion] = useState<{ datos: Cotizacion; version: number; numero: string } | null>(null)
   const accionCotizar = useAccion()
-  const accionConfirmar = useAccion()
 
   const disponible = (codigo: string) =>
     existencias.datos?.find((e) => e.producto_codigo === codigo)?.disponible ?? 0
@@ -32,51 +33,33 @@ export function PanelVenta({ localCodigo, productos }: { localCodigo: string; pr
     .filter((p) => !texto || `${p.codigo} ${p.nombre} ${p.categoria}`.toLowerCase().includes(texto))
 
   // Cualquier edición del borrador cambia su versión y deja vencida la cotización anterior.
-  const cotizacionVigente = cotizacion && cotizacion.version === borrador.version ? cotizacion.datos : null
+  const cotizacionVigente = cotizacion && cotizacion.version === borrador.version && cotizacion.numero === borrador.numero ? cotizacion.datos : null
   const items = borrador.items.map((i) => ({ producto_codigo: i.producto_codigo, cantidad: i.cantidad }))
 
   const cotizar = async () => {
+    if (bloqueada) return
     const version = borrador.version
+    const numero = borrador.numero
     const datos = await accionCotizar.ejecutar(() => api.cotizar({ local_codigo: localCodigo, medio_codigo: borrador.medio, items }))
-    if (datos) setCotizacion({ datos, version })
+    if (datos) setCotizacion({ datos, version, numero })
   }
 
-  const terminar = (venta: Venta) => {
-    setConfirmada(venta)
+  const ejecutarConfirmacion = async (accion: () => Promise<void>) => {
     setCotizacion(null)
-    accionConfirmar.limpiarError()
-    descartarBorrador()
-    void existencias.recargar()
-    toast.success(`Venta ${venta.numero} confirmada: ${importe(venta.total_cobrado)}`)
-  }
-
-  const confirmar = async () => {
-    if (!cotizacionVigente) return
-    setConfirmada(null)
-    const venta = await accionConfirmar.ejecutar(() => api.confirmarVenta({
-      numero: borrador.numero, local_codigo: localCodigo, medio_codigo: borrador.medio, items,
-      total_esperado: cotizacionVigente.total,
-    }))
-    if (venta) terminar(venta)
-  }
-
-  // Si se perdió la respuesta, se consulta por el MISMO número antes de reintentar (no se genera otro).
-  const consultarSiQuedoRegistrada = async () => {
-    try {
-      terminar(await api.venta(borrador.numero))
-    } catch (e) {
-      if (e instanceof ErrorApi && e.estado === 404) {
-        accionConfirmar.limpiarError()
-        toast.info("La venta no quedó registrada. Podés volver a confirmarla con el mismo número.")
-      } else {
-        toast.error("Todavía no hay conexión con el servidor.")
-      }
+    await accion()
+    const venta = useContexto.getState().confirmada
+    if (venta) {
+      void existencias.recargar()
+      toast.success(`Venta ${venta.numero} confirmada: ${importe(venta.total_cobrado)}`)
     }
   }
 
-  const errorConfirmar = accionConfirmar.error
-  // Sin respuesta del servidor: no se sabe si la venta quedó registrada; hay que consultar antes de reintentar.
-  const sinRespuesta = errorConfirmar instanceof ErrorRed
+  const confirmar = async () => {
+    if (!cotizacionVigente || bloqueada) return
+    const total = cotizacionVigente.total
+    const version = borrador.version
+    await ejecutarConfirmacion(() => confirmarVenta(total, version))
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-[2fr_3fr]">
@@ -94,7 +77,7 @@ export function PanelVenta({ localCodigo, productos }: { localCodigo: string; pr
                   <p className="font-medium">{p.nombre}</p>
                   <p className="text-muted-foreground">{p.codigo} · {importe(p.precio)} · disponible {disponible(p.codigo)}</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={() => agregarItem({ producto_codigo: p.codigo, producto_nombre: p.nombre, precio: p.precio })}>
+                <Button size="sm" variant="outline" disabled={bloqueada} onClick={() => agregarItem({ producto_codigo: p.codigo, producto_nombre: p.nombre, precio: p.precio })}>
                   <PlusIcon data-icon="inline-start" /> Agregar
                 </Button>
               </li>
@@ -106,7 +89,7 @@ export function PanelVenta({ localCodigo, productos }: { localCodigo: string; pr
       <div className="space-y-6">
         <Seccion titulo="Venta en preparación" descripcion={`Número ${borrador.numero}`}
           acciones={borrador.items.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => { descartarBorrador(); setCotizacion(null) }}>Descartar</Button>
+            <Button variant="ghost" size="sm" disabled={bloqueada} onClick={() => { descartarBorrador(); setCotizacion(null) }}>Descartar</Button>
           )}>
           {borrador.items.length === 0 ? (
             <p className="py-4 text-center text-sm text-muted-foreground">Agregá productos desde la lista.</p>
@@ -127,16 +110,16 @@ export function PanelVenta({ localCodigo, productos }: { localCodigo: string; pr
                     <TableCell className={num}>{importe(i.precio)}</TableCell>
                     <TableCell>
                       <div className="flex items-center justify-center gap-1">
-                        <Button size="icon-xs" variant="outline" aria-label="Restar" disabled={i.cantidad <= 1}
+                        <Button size="icon-xs" variant="outline" aria-label="Restar" disabled={bloqueada || i.cantidad <= 1}
                           onClick={() => cambiarCantidad(i.producto_codigo, i.cantidad - 1)}><MinusIcon /></Button>
-                        <Input className="h-6 w-14 text-center" inputMode="numeric" value={i.cantidad} aria-label={`Cantidad de ${i.producto_codigo}`}
+                        <Input className="h-6 w-14 text-center" inputMode="numeric" disabled={bloqueada} value={i.cantidad} aria-label={`Cantidad de ${i.producto_codigo}`}
                           onChange={(e) => cambiarCantidad(i.producto_codigo, Math.max(1, Number(e.target.value) || 1))} />
-                        <Button size="icon-xs" variant="outline" aria-label="Sumar"
+                        <Button size="icon-xs" variant="outline" aria-label="Sumar" disabled={bloqueada}
                           onClick={() => cambiarCantidad(i.producto_codigo, i.cantidad + 1)}><PlusIcon /></Button>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Button size="icon-sm" variant="ghost" aria-label="Quitar" onClick={() => quitarItem(i.producto_codigo)}><Trash2Icon /></Button>
+                      <Button size="icon-sm" variant="ghost" aria-label="Quitar" disabled={bloqueada} onClick={() => quitarItem(i.producto_codigo)}><Trash2Icon /></Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -147,12 +130,12 @@ export function PanelVenta({ localCodigo, productos }: { localCodigo: string; pr
           <Separator className="my-4" />
           <div className="grid items-end gap-3 sm:grid-cols-[1fr_auto]">
             <Campo etiqueta="Medio de pago">
-              <Seleccion valor={borrador.medio} onCambio={(v) => cambiarMedio(v as CodigoMedio)}
+              <Seleccion disabled={bloqueada} valor={borrador.medio} onCambio={(v) => cambiarMedio(v as CodigoMedio)}
                 opciones={(medios.datos ?? []).map((m) => ({
                   valor: m.codigo, etiqueta: `${ETIQUETA_MEDIO[m.codigo]} (${m.tipo} ${tasa(m.tasa)})`,
                 }))} />
             </Campo>
-            <Button variant="outline" disabled={borrador.items.length === 0 || accionCotizar.pendiente} onClick={() => void cotizar()}>
+            <Button variant="outline" disabled={bloqueada || borrador.items.length === 0 || accionCotizar.pendiente} onClick={() => void cotizar()}>
               {accionCotizar.pendiente ? "Cotizando…" : "Cotizar"}
             </Button>
           </div>
@@ -172,21 +155,33 @@ export function PanelVenta({ localCodigo, productos }: { localCodigo: string; pr
               {cotizacion ? "La venta cambió desde la última cotización: volvé a cotizar." : "Cotizá la venta para ver el total."}
             </p>
           )}
-          <Button className="mt-4 w-full" size="lg" disabled={!cotizacionVigente || accionConfirmar.pendiente || sinRespuesta}
+          <Button className="mt-4 w-full" size="lg" disabled={!cotizacionVigente || bloqueada}
             onClick={() => void confirmar()}>
-            {accionConfirmar.pendiente ? "Confirmando…" : "Confirmar venta"}
+            {operacion?.estado === "enviando" ? "Confirmando…" : "Confirmar venta"}
           </Button>
           <div className="mt-3 space-y-3">
-            {sinRespuesta ? (
+            {operacion ? (
               <Alert>
-                <AlertTitle>No sabemos si la venta quedó registrada</AlertTitle>
+                <AlertTitle>{operacion.estado === "enviando" ? "Confirmando venta" : "Confirmación pendiente"}</AlertTitle>
                 <AlertDescription>
-                  <p>Se perdió la comunicación con el servidor. Consultá el estado de la venta {borrador.numero} antes de reintentar.</p>
-                  <Button size="sm" className="mt-2" onClick={() => void consultarSiQuedoRegistrada()}>Consultar estado</Button>
+                  <p>Venta {operacion.datos.numero}. Conservamos sus datos hasta resolver el resultado.</p>
+                  {operacion.estado === "consultando" && <p>Consultando el estado en el servidor…</p>}
+                  {operacion.estado === "desconocido" && (
+                    <><p>No sabemos si quedó registrada. Consultá antes de reintentar.</p>
+                      <Button size="sm" className="mt-2" onClick={() => void ejecutarConfirmacion(consultarConfirmacion)}>Consultar estado</Button></>
+                  )}
+                  {operacion.estado === "no_encontrada" && (
+                    <><p>Todavía no aparece registrada. Podés reenviar exactamente la misma operación.</p>
+                      <Button size="sm" className="mt-2" onClick={() => void ejecutarConfirmacion(reintentarConfirmacion)}>Reintentar misma venta</Button></>
+                  )}
+                  {operacion.estado === "diferente" && (
+                    <><p>La venta encontrada tiene otros datos. Este borrador no se da por confirmado.</p>
+                      <Button size="sm" className="mt-2" onClick={resolverNumeroOcupado}>Usar nuevo número y volver a cotizar</Button></>
+                  )}
                 </AlertDescription>
               </Alert>
             ) : (
-              <MensajeError error={errorConfirmar} titulo="No se registró la venta" />
+              <MensajeError error={errorVenta} titulo="No se registró la venta; revisá los datos y volvé a cotizar" />
             )}
             {confirmada && (
               <Alert>

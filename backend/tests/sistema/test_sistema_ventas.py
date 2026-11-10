@@ -205,7 +205,7 @@ class TestVentas:
         sistema.despachar("B-1")
         sistema.recibir("B-1", True)
         with pytest.raises(Conflicto, match="Stock insuficiente"):
-            sistema.confirmar_venta(venta())
+            sistema.confirmar_venta(venta(total_esperado="7560.00"))
 
     def test_confirmar_venta(self, sistema):
         abastecer(sistema)
@@ -223,9 +223,9 @@ class TestVentas:
 
     def test_numero_repetido(self, sistema):
         abastecer(sistema)
-        sistema.confirmar_venta(venta())
+        sistema.confirmar_venta(venta(total_esperado="7560.00"))
         with pytest.raises(Conflicto, match="Ya existe la venta"):
-            sistema.confirmar_venta(venta())
+            sistema.confirmar_venta(venta(total_esperado="7560.00"))
         assert disponible(sistema, "L01", "P001") == 18
 
     def test_medio_desconocido(self, sistema):
@@ -235,7 +235,7 @@ class TestVentas:
 
     def test_devoluciones(self, sistema):  # RN-24 a RN-27
         abastecer(sistema)
-        confirmada = sistema.confirmar_venta(venta(items=(("P001", 5),)))  # 5 × 4200 − 10 % = 18900
+        confirmada = sistema.confirmar_venta(venta(items=(("P001", 5),), total_esperado="18900.00"))  # 5 × 4200 − 10 % = 18900
         linea = confirmada["lineas"][0]["id"]
         base = {"venta_numero": "V-1", "detalle_id": linea}
 
@@ -299,3 +299,19 @@ class TestImportacionCSV:
         with pytest.raises(ErrorImportacion) as error:
             sistema.importar_csv("proveedores", archivo)
         assert error.value.errores[0]["fila"] == 2
+
+
+@pytest.mark.parametrize("valor", [None, True, "NaN", "Infinity", "1.001", "-1"])
+def test_servicio_exige_total_esperado_valido(sistema, valor):
+    abastecer(sistema)
+    with pytest.raises(ValueError, match="total_esperado"):
+        sistema.confirmar_venta(venta(total_esperado=valor))
+    assert sistema.listar_ventas() == []
+    assert disponible(sistema, "L01", "P001") == 20
+
+
+def test_servicio_rechaza_total_omitido(sistema):
+    abastecer(sistema)
+    with pytest.raises(ValueError, match="total_esperado"):
+        sistema.confirmar_venta(venta())
+    assert disponible(sistema, "L01", "P001") == 20

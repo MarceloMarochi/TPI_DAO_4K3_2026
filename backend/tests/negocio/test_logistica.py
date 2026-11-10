@@ -1,6 +1,7 @@
 """Reposición y ciclo de vida del bulto (patrón State)."""
 
 import pytest
+from app.negocio.errores import Conflicto
 
 from app.negocio.estados import EnTransito, Verificado, estado_desde_nombre
 from app.negocio.modelos import Bulto, OrdenReposicion
@@ -166,12 +167,14 @@ class TestCicloDelBulto:
 
     def test_no_se_puede_saltear_estados(self, cd_abastecido, local, yerba):
         bulto = preparar_bulto(cd_abastecido, local, {yerba: 10})
-        with pytest.raises(ValueError, match="Transición no permitida"):
+        with pytest.raises(AttributeError):
             bulto.cambiar_estado(Verificado())
+        with pytest.raises(Conflicto):
+            bulto.verificar(True)
 
     def test_no_se_acredita_stock_fuera_de_recibido(self, cd_abastecido, local, yerba):
         bulto = preparar_bulto(cd_abastecido, local, {yerba: 10})
-        with pytest.raises(ValueError):
+        with pytest.raises(AttributeError):
             bulto.acreditar_destino()
         assert local.disponible(yerba.codigo) == 0
 

@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.datos.conexion import ConexionSQLite
 from app.inicializar import ARCHIVOS_EJEMPLO, CARPETA_EJEMPLO, inicializar
 from app.main import create_app
-from app.negocio import comunes, modelos, sistema as modulo_sistema
+from app.negocio import comunes, bultos, servicio_reportes
 from app.negocio.comunes import ZONA_HORARIA
 from app.negocio.errores import NoEncontrado
 from app.negocio.sistema import SistemaVentas
@@ -36,7 +36,7 @@ class Reloj:
 @pytest.fixture
 def reloj(monkeypatch):
     reloj = Reloj()
-    for modulo in (comunes, modelos, modulo_sistema):
+    for modulo in (comunes, bultos, servicio_reportes):
         monkeypatch.setattr(modulo, "ahora", reloj)
     return reloj
 
@@ -89,8 +89,10 @@ def bulto(sistema, destino, producto, cantidad, hasta="VERIFICADO", motivo="") -
 
 
 def vender(sistema, numero, medio, cantidad, producto="PX", local="L01") -> int:
-    venta = sistema.confirmar_venta({"numero": numero, "local_codigo": local, "medio_codigo": medio,
-                                     "items": [{"producto_codigo": producto, "cantidad": cantidad}]})
+    datos = {"numero": numero, "local_codigo": local, "medio_codigo": medio,
+             "items": [{"producto_codigo": producto, "cantidad": cantidad}]}
+    total = sistema.cotizar_venta(datos)["total"]
+    venta = sistema.confirmar_venta(datos | {"total_esperado": total})
     return venta["lineas"][0]["id"]
 
 

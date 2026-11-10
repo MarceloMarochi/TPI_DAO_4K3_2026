@@ -66,6 +66,20 @@ def validar_importe_positivo(valor, campo: str) -> Decimal:
     return redondear(importe)
 
 
+def validar_total_esperado(valor) -> Decimal:
+    """Importe obligatorio, finito, no negativo y representable en centavos."""
+    if valor is None:
+        raise ValueError("total_esperado: es obligatorio; cotice antes de confirmar")
+    importe = a_decimal(valor, "total_esperado")
+    try:
+        centavos = redondear(importe)
+    except InvalidOperation:
+        raise ValueError("total_esperado: importe fuera de rango") from None
+    if importe < 0 or importe != centavos:
+        raise ValueError("total_esperado: debe ser no negativo y tener como máximo dos decimales")
+    return centavos
+
+
 def validar_fecha(valor, campo: str = "fecha") -> datetime:
     """Fecha con zona horaria; si no se informa, se usa la del servidor."""
     if valor is None:

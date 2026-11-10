@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { BarChart3Icon, BoxesIcon, ShoppingCartIcon, StoreIcon, TruckIcon } from "lucide-react"
 
 import { Seleccion } from "@/components/comunes"
@@ -22,6 +22,13 @@ const AREAS = [
 
 export default function App() {
   const [area, setArea] = useState<string>("catalogos")
+  const confirmacionPendiente = useContexto((s) => s.operacion !== null)
+  useEffect(() => {
+    if (!confirmacionPendiente) return
+    const avisar = (evento: BeforeUnloadEvent) => { evento.preventDefault(); evento.returnValue = "" }
+    window.addEventListener("beforeunload", avisar)
+    return () => window.removeEventListener("beforeunload", avisar)
+  }, [confirmacionPendiente])
 
   return (
     <div className="min-h-svh bg-muted/40">
@@ -59,12 +66,13 @@ export default function App() {
 function SelectorLocal() {
   const { opcionesLocales } = useCatalogos()
   const localCodigo = useContexto((s) => s.localCodigo)
+  const bloqueado = useContexto((s) => s.operacion !== null)
   const hayBorrador = useContexto((s) => s.borrador.items.length > 0)
   const seleccionarLocal = useContexto((s) => s.seleccionarLocal)
   const [pendiente, setPendiente] = useState<string | null>(null)
 
   const cambiar = (codigo: string) => {
-    if (codigo === (localCodigo ?? "")) return
+    if (bloqueado || codigo === (localCodigo ?? "")) return
     if (hayBorrador) setPendiente(codigo)
     else seleccionarLocal(codigo || null)
   }
@@ -72,7 +80,7 @@ function SelectorLocal() {
   return (
     <div className="flex items-center gap-2">
       <StoreIcon className="size-4 text-muted-foreground" />
-      <Seleccion className="w-56" valor={localCodigo ?? ""} onCambio={cambiar} opciones={opcionesLocales} placeholder="Elegir local de caja" />
+      <Seleccion disabled={bloqueado} className="w-56" valor={localCodigo ?? ""} onCambio={cambiar} opciones={opcionesLocales} placeholder="Elegir local de caja" />
       <Dialog open={pendiente !== null} onOpenChange={(abierto) => !abierto && setPendiente(null)}>
         <DialogContent>
           <DialogHeader>
@@ -83,7 +91,7 @@ function SelectorLocal() {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => setPendiente(null)}>Seguir con la venta</Button>
-            <Button variant="destructive" onClick={() => { seleccionarLocal(pendiente || null); setPendiente(null) }}>Descartar y cambiar</Button>
+            <Button variant="destructive" disabled={bloqueado} onClick={() => { seleccionarLocal(pendiente || null); setPendiente(null) }}>Descartar y cambiar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

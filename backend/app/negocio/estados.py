@@ -12,13 +12,25 @@ No hay if/elif por tipo de estado: el comportamiento lo decide el polimorfismo.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from app.negocio.comunes import validar_texto
 from app.negocio.errores import Conflicto
 
 if TYPE_CHECKING:
-    from app.negocio.modelos import Bulto
+    from app.negocio.bultos import Bulto
+
+
+@dataclass(frozen=True)
+class _Transicion:
+    """Resultado sin efectos laterales; Bulto lo aplica como una sola operación."""
+
+    nuevo: EstadoBulto
+    motivo: str
+    precinto: str | None = None
+    intacto: bool | None = None
+    acreditar: bool = False
 
 
 class EstadoBulto(ABC):
@@ -45,16 +57,16 @@ class EstadoBulto(ABC):
 
     # Operaciones del bulto: rechazadas por defecto.
 
-    def precintar(self, bulto: Bulto, numero: str) -> None:
+    def precintar(self, bulto: Bulto, numero: str) -> _Transicion:
         self._rechazar("precintar")
 
-    def despachar(self, bulto: Bulto) -> None:
+    def despachar(self, bulto: Bulto) -> _Transicion:
         self._rechazar("despachar")
 
-    def recibir(self, bulto: Bulto, intacto: bool, motivo: str = "") -> None:
+    def recibir(self, bulto: Bulto, intacto: bool, motivo: str = "") -> _Transicion:
         self._rechazar("recibir")
 
-    def verificar(self, bulto: Bulto, conforme: bool, motivo: str = "") -> None:
+    def verificar(self, bulto: Bulto, conforme: bool, motivo: str = "") -> _Transicion:
         self._rechazar("verificar")
 
     def _rechazar(self, operacion: str) -> None:
@@ -82,10 +94,9 @@ class Preparado(EstadoBulto):
     def acciones_permitidas(self) -> list[str]:
         return ["precintar"]
 
-    def precintar(self, bulto: Bulto, numero: str) -> None:
+    def precintar(self, bulto: Bulto, numero: str) -> _Transicion:
         numero = validar_texto(numero, "numero de precinto")
-        bulto.registrar_precinto(numero)
-        bulto.cambiar_estado(Precintado(), f"Precinto {numero}")
+        return _Transicion(Precintado(), f"Precinto {numero}", precinto=numero)
 
 
 class Precintado(EstadoBulto):
@@ -100,9 +111,9 @@ class Precintado(EstadoBulto):
     def acciones_permitidas(self) -> list[str]:
         return ["despachar"]
 
-    def despachar(self, bulto: Bulto) -> None:
+    def despachar(self, bulto: Bulto) -> _Transicion:
         # No se vuelve a descontar el CD: ya se hizo al preparar.
-        bulto.cambiar_estado(EnTransito(), "Despachado desde el CD")
+        return _Transicion(EnTransito(), "Despachado desde el CD")
 
 
 class EnTransito(EstadoBulto):
@@ -117,18 +128,16 @@ class EnTransito(EstadoBulto):
     def acciones_permitidas(self) -> list[str]:
         return ["recibir"]
 
-    def recibir(self, bulto: Bulto, intacto: bool, motivo: str = "") -> None:
+    def recibir(self, bulto: Bulto, intacto: bool, motivo: str = "") -> _Transicion:
         if not isinstance(intacto, bool):
             raise ValueError("intacto: debe indicarse si el precinto llegó intacto")
         # Evaluar el precinto es una validación de datos; el estado siguiente
         # sigue siendo responsabilidad de este estado concreto.
         if intacto:
-            bulto.registrar_recepcion(True)
-            bulto.cambiar_estado(Recibido(), motivo.strip() if motivo else "Precinto intacto")
+            return _Transicion(Recibido(), motivo.strip() if motivo else "Precinto intacto", intacto=True)
         else:
             motivo = validar_texto(motivo, "motivo del rechazo")
-            bulto.registrar_recepcion(False)
-            bulto.cambiar_estado(Rechazado(), motivo)
+            return _Transicion(Rechazado(), motivo, intacto=False)
 
 
 class Recibido(EstadoBulto):
@@ -143,16 +152,15 @@ class Recibido(EstadoBulto):
     def acciones_permitidas(self) -> list[str]:
         return ["verificar"]
 
-    def verificar(self, bulto: Bulto, conforme: bool, motivo: str = "") -> None:
+    def verificar(self, bulto: Bulto, conforme: bool, motivo: str = "") -> _Transicion:
         if not isinstance(conforme, bool):
             raise ValueError("conforme: debe indicarse si el control fue conforme")
         if conforme:
-            # Único punto del sistema donde la mercadería pasa a disponible en el local.
-            bulto.acreditar_destino()
-            bulto.cambiar_estado(Verificado(), motivo.strip() if motivo else "Remito y contenido conformes")
+            return _Transicion(Verificado(), motivo.strip() if motivo else "Remito y contenido conformes",
+                               acreditar=True)
         else:
             motivo = validar_texto(motivo, "motivo del rechazo")
-            bulto.cambiar_estado(Rechazado(), motivo)
+            return _Transicion(Rechazado(), motivo)
 
 
 class Verificado(EstadoBulto):

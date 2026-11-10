@@ -1,6 +1,8 @@
 // Cliente HTTP tipado. Todas las reglas y cálculos están en el backend:
 // este módulo sólo envía solicitudes y convierte las respuestas de error.
 
+import type { SolicitudVenta } from "./operacionVenta"
+
 import type {
   Bulto, BultoResumen, CodigoMedio, Cotizacion, DetalleError, Devolucion, Existencia, Ingreso, ItemVenta,
   MedioPago, NombreReporte, Orden, OrdenResumen, Producto, Proveedor, Reporte, ResultadoImportacion, Sucursal,
@@ -60,7 +62,12 @@ async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown, para
     }
     throw new ErrorApi(respuesta.status, datos.codigo ?? "ERROR", datos.mensaje ?? `Error ${respuesta.status} del servidor`, datos.detalles ?? [])
   }
-  return respuesta.json() as Promise<T>
+  try {
+    return await respuesta.json() as T
+  } catch {
+    // Un cuerpo truncado después de confirmar tiene resultado desconocido.
+    throw new ErrorRed()
+  }
 }
 
 const get = <T>(ruta: string, parametros?: Parametros) => solicitar<T>("GET", ruta, undefined, parametros)
@@ -106,7 +113,7 @@ export const api = {
   // Caja
   mediosPago: () => get<MedioPago[]>("/medios-pago"),
   cotizar: (datos: { local_codigo: string; medio_codigo: CodigoMedio; items: ItemVenta[] }) => post<Cotizacion>("/ventas/cotizacion", datos),
-  confirmarVenta: (datos: { numero: string; local_codigo: string; medio_codigo: CodigoMedio; items: ItemVenta[]; total_esperado: string }) =>
+  confirmarVenta: (datos: SolicitudVenta) =>
     post<Venta>("/ventas", datos),
   ventas: (local?: string) => get<VentaResumen[]>("/ventas", { local }),
   venta: (numero: string) => get<Venta>(`/ventas/${encodeURIComponent(numero)}`),

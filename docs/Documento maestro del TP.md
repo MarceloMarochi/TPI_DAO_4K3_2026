@@ -182,9 +182,9 @@ SQLite
 - Los DAOs de una misma operación comparten la conexión y **no hacen commit individual**.
 - La transacción de escritura se abre **antes** de leer saldos, estados o cantidades devueltas (`BEGIN IMMEDIATE`). Todo se confirma o todo se revierte.
 
-**Idempotencia:** cada alta (venta, devolución, ingreso, orden, bulto) lleva un número único. Si se pierde la respuesta, el frontend consulta por ese número antes de reenviar. `UNIQUE` en la base impide duplicar.
+**Idempotencia:** cada alta (venta, devolución, ingreso, orden, bulto) lleva un número único. La unicidad del servidor protege todas las altas. La recuperación guiada de la interfaz se implementa para la confirmación de ventas: consulta por ese número antes de reenviar. `UNIQUE` en la base impide duplicar.
 
-**Cotización:** `POST /api/ventas/cotizacion` calcula sin guardar ni reservar. Al confirmar, el servidor recalcula; si el total difiere del `total_esperado` enviado, responde **409** sin guardar.
+**Cotización:** `POST /api/ventas/cotizacion` calcula sin guardar ni reservar. `total_esperado` es obligatorio, finito, no negativo y con precisión de centavos. Al confirmar, el servidor recalcula; si el total difiere del `total_esperado` enviado, responde **409** sin guardar.
 
 ---
 
@@ -216,8 +216,8 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 | **DetalleBulto** | `pedido: DetalleReposicion`, `cantidad` | — | Cantidad > 0; destino coincidente; suma asignada ≤ solicitada. Producto = `pedido.producto` |
 | **CambioEstado** | `secuencia`, `fecha`, `anterior`, `nuevo`, `motivo` | — | **Inmutable**, incluye el alta en Preparado |
 | **Venta** | `numero`, `fecha`, `local`, `detalles: list[DetalleVenta]`, `medio: MedioPago`, `medio_codigo`, `tasa_aplicada`, `total_cobrado`, `comprobante_numero`, `confirmada` | `agregar_detalle(producto, cantidad)`, `subtotal()`, `calcular_total()`, `confirmar()` | **Contexto Strategy.** Un único cobro. Confirmada es inmutable; las correcciones son devoluciones |
-| **DetalleVenta** | `id`, `producto`, `cantidad`, `precio_unitario`, `costo_unitario`, `importe_cobrado` | `subtotal()`, `margen()` | Precio y costo históricos. El total se reparte proporcionalmente; el residual de centavos va a la última línea |
-| **Devolucion** | `numero`, `fecha`, `venta`, `detalle`, `cantidad`, `apta_reventa`, `motivo`, `importe_reintegrado` | `validar(cantidad_ya_devuelta)`, `calcular_reintegro(importe_ya_devuelto)` | Una línea por registro; acumulado ≤ vendido; reintegro por el medio original; el último reintegro absorbe el residual |
+| **DetalleVenta** | `id`, `producto`, `cantidad`, `precio_unitario`, `costo_unitario`, `importe_cobrado` | `subtotal()`, `margen()` | Precio y costo históricos. El total se reparte proporcionalmente; los centavos pendientes se asignan por mayor resto, con desempate por código de producto |
+| **Devolucion** | `numero`, `fecha`, `venta`, `detalle`, `cantidad`, `apta_reventa`, `motivo`, `importe_reintegrado` | `validar(cantidad_ya_devuelta)`, `calcular_reintegro(importe_ya_devuelto)` | Una línea por registro; acumulado ≤ vendido; reintegro por el medio original; el reintegro es la diferencia entre el objetivo acumulado y lo ya reintegrado, sin importes negativos |
 
 ### 7.2 State (7)
 
@@ -231,7 +231,7 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 
 | Clase | Responsabilidad | Operaciones |
 | --- | --- | --- |
-| **SistemaVentas** | Único coordinador de casos de uso y transacciones. Valida proveedores. Una instancia por solicitud | `guardar_catalogo(tipo, datos)`, `registrar_ingreso(datos)`, `crear_orden(necesidades)`, `preparar_bulto(datos)`, `precintar(codigo, numero)`, `despachar(codigo)`, `recibir(codigo, intacto, motivo)`, `verificar(codigo, conforme, motivo)`, `cotizar_venta(datos)`, `confirmar_venta(datos, medio)`, `devolver(datos)`, `importar_csv(ruta)`, `consultar_reporte(nombre, filtros)`, `consultar_catalogo(tipo, filtros)`, `consultar_orden`, `consultar_bulto`, `consultar_venta`, `consultar_devolucion`, `consultar_ingreso`, `configurar_minimo(sucursal, producto, minimo)`, `consultar_medios_pago()`, `consultar_existencias(filtros)` |
+| **SistemaVentas** | Fachada de cinco servicios: Catálogo, Logística, Ventas, Reportes e Importación. Una instancia por solicitud; comparten conexión y transacciones completas | `guardar_catalogo(tipo, datos)`, `registrar_ingreso(datos)`, `crear_orden(necesidades)`, `preparar_bulto(datos)`, `precintar(codigo, numero)`, `despachar(codigo)`, `recibir(codigo, intacto, motivo)`, `verificar(codigo, conforme, motivo)`, `cotizar_venta(datos)`, `confirmar_venta(datos, medio)`, `devolver(datos)`, `importar_csv(ruta)`, `consultar_reporte(nombre, filtros)`, `consultar_catalogo(tipo, filtros)`, `consultar_orden`, `consultar_bulto`, `consultar_venta`, `consultar_devolucion`, `consultar_ingreso`, `configurar_minimo(sucursal, producto, minimo)`, `consultar_medios_pago()`, `consultar_existencias(filtros)` |
 | **CatalogoDAO** | Productos, sucursales, proveedores, existencias, ingresos | `guardar_producto`, `guardar_sucursal`, `guardar_proveedor`, `listar_catalogos`, `guardar_existencia`, `insertar_ingreso`, `buscar_ingreso`, `consultar_existencias` |
 | **LogisticaDAO** | Órdenes, bultos, historial | `guardar_orden`, `guardar_bulto`, `buscar_bulto`, `registrar_transicion`, `asignado_a_detalle`, `buscar_orden`, `listar_ordenes`, `listar_bultos` |
 | **VentaDAO** | Ventas, detalles, devoluciones | `insertar_venta`, `buscar_venta`, `insertar_devolucion`, `acumulado_devuelto`, `buscar_devolucion`, `listar_ventas` |
@@ -245,10 +245,10 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 - Los estados del bulto se identifican con códigos en mayúsculas: `PREPARADO`, `PRECINTADO`, `EN_TRANSITO`, `RECIBIDO`, `VERIFICADO`, `RECHAZADO`. El frontend los traduce a etiquetas.
 - **Crear un `Bulto` equivale a prepararlo:** el constructor valida el contenido, descuenta el CD (primero verifica todas las líneas, para no dejar descuentos a medias) y cierra la orden. Para leer un bulto de la base se usa `Bulto.restaurar(...)`, que no repite esos efectos.
 - `EstadoBulto` agrega `acciones_permitidas()` y `estado_remito()`, redefinidos por cada estado concreto: así la API informa qué botones mostrar sin `if` por tipo.
-- Sólo `Recibido.verificar(conforme=True)` llama a `Bulto.acreditar_destino()`, que además se niega a ejecutarse si el estado actual no admite pasar a `VERIFICADO`.
+- Los estados devuelven una transición sin mutar el bulto. `Bulto` aplica juntos estado, historial, evidencia y acreditación a través de sus operaciones públicas; no expone `acreditar_destino` ni `cambiar_estado`.
 - `IngresoStock.aplicar(cd)` suma el stock al CD y actualiza el costo de referencia.
 - `Venta.agregar_detalle` ya controla el disponible del local (para avisar temprano); `confirmar()` lo vuelve a controlar antes de descontar. El comprobante por defecto es `CI-<número de venta>`.
-- `Devolucion.calcular_reintegro(importe_ya_devuelto, cantidad_ya_devuelta)` recibe también la cantidad, para saber si es la última devolución de la línea (la que absorbe el residuo). `Devolucion.confirmar(...)` valida, fija el reintegro y reingresa el stock si es apta.
+- `Devolucion.calcular_reintegro(importe_ya_devuelto, cantidad_ya_devuelta)` recibe también la cantidad, para calcular el objetivo acumulado y restar lo ya reintegrado. Al completar la cantidad vendida el objetivo coincide con lo cobrado; se conservan las devoluciones históricas del algoritmo anterior. `Devolucion.confirmar(...)` valida, fija el reintegro y reingresa el stock si es apta.
 - `CambioEstado` es inmutable de verdad: cualquier asignación posterior a su creación lanza `AttributeError`.
 
 ### 7.4.2 Decisiones tomadas al implementar (fase 3)
@@ -344,11 +344,11 @@ Sirven para escribir un test por regla.
 - RN-19 Venta con al menos una línea, cantidades > 0, en un local (no CD).
 - RN-20 No vender más que el disponible del local.
 - RN-21 La venta guarda precio, costo, tasa e importes históricos; confirmada es inmutable.
-- RN-22 El total cobrado se distribuye proporcionalmente; el residual de centavos va a la última línea.
+- RN-22 El total cobrado se distribuye proporcionalmente; los centavos pendientes se asignan por mayor resto, con desempate por código de producto.
 - RN-23 Confirmar recalcula; si difiere del total esperado, 409 sin guardar.
 - RN-24 La devolución refiere a una venta existente y a una línea de esa venta.
 - RN-25 Cantidad devuelta acumulada ≤ cantidad vendida.
-- RN-26 Reintegro por el medio original con el importe histórico; el último reintegro absorbe el residual; acumulado ≤ cobrado.
+- RN-26 Reintegro por el medio original con el importe histórico; el reintegro es la diferencia entre el objetivo acumulado y lo ya reintegrado, sin importes negativos; acumulado ≤ cobrado.
 - RN-27 Sólo lo apto para reventa vuelve al disponible; lo no apto queda registrado fuera de venta.
 
 **Carga CSV**
@@ -464,8 +464,8 @@ Comportamiento común: estados de carga, vacío, éxito y error; botón deshabil
 
 **Decisiones:**
 - **Números de documento (P-05):** el frontend los genera al iniciar cada borrador (`V-AAMMDD-HHMMSS-XX`, y lo mismo para `O`, `B`, `R`, `ING` y `D`) y se pueden editar. El de una venta se conserva hasta conocer el resultado.
-- **Respuesta perdida:** si la confirmación de una venta no recibe respuesta, el botón se bloquea y aparece "Consultar estado", que busca la venta por **el mismo número**. Si existe, se da por confirmada; si da 404, se puede reintentar con ese número.
-- **Cotización vencida:** cada edición del borrador incrementa `version`. Una cotización sólo vale para la versión con la que se pidió; si no coincide, "Confirmar" queda deshabilitado. Al confirmar se envía `total_esperado`, y si el servidor responde 409 hay que volver a cotizar.
+- **Respuesta perdida:** se conserva una copia inmutable de la solicitud y se bloquean edición, descarte y cambio de local. "Consultar estado" busca por **el mismo número** y compara número, local, medio, total y cantidades. Si da 404, se puede reenviar exactamente esa solicitud; si existe otra venta con ese número, se exige resolver el conflicto explícitamente. El estado se conserva al cambiar de vista. También se consultan los resultados de respuestas 5xx o ilegibles.
+- **Cotización vencida:** cada edición del borrador incrementa `version`. Una cotización sólo vale para el número de borrador y la versión con los que se pidió; si no coincide, "Confirmar" queda deshabilitado. Al confirmar se envía `total_esperado`, y si el servidor responde 409 hay que volver a cotizar.
 - **Botones del bulto:** salen de `acciones_permitidas`, que informa el servidor. El frontend no reimplementa el patrón State. Recibir y verificar piden el motivo cuando el resultado es negativo.
 - **Sin cálculos en el navegador:** el frontend no suma importes ni stock. Totales, ajustes, reintegros, faltantes y porcentajes llegan del servidor; las barras de R1 sólo escalan los valores recibidos.
 - **Cambio de local:** con un borrador cargado, cambiar de local pide confirmación y descarta la venta en preparación.
@@ -557,10 +557,12 @@ Comportamiento común: estados de carga, vacío, éxito y error; botón deshabil
 │   │   ├── config.py          ← ruta de la base de datos y tasas
 │   │   ├── api/               ← AdaptadorAPI: rutas y esquemas Pydantic por área
 │   │   ├── negocio/
-│   │   │   ├── modelos.py     ← 12 clases de dominio
+│   │   │   ├── modelos.py     ← exportaciones compatibles de las 12 clases de dominio
+│   │   │   ├── catalogo_stock.py, reposicion.py, bultos.py, ventas.py, devoluciones.py
+│   │   │   ├── servicio_*.py   ← cinco servicios del alcance simplificado
 │   │   │   ├── estados.py     ← State
 │   │   │   ├── pagos.py       ← Strategy
-│   │   │   └── sistema.py     ← SistemaVentas
+│   │   │   └── sistema.py     ← fachada SistemaVentas
 │   │   ├── datos/
 │   │   │   ├── schema.sql
 │   │   │   ├── conexion.py
@@ -599,3 +601,25 @@ Cada fase termina con tests en verde y un commit (o PR).
 - Ventas: ventas, devoluciones y R1/R2.
 - Catálogo, CSV y API.
 - Frontend (a partir de la fase 4).
+
+
+## 16. Organización vigente tras la revisión del 09/11/2026
+
+Los diagramas y recuentos de clases de las fases iniciales describen el diseño de referencia.
+La implementación conserva las doce entidades de dominio, ahora repartidas en
+`catalogo_stock.py`, `reposicion.py`, `bultos.py`, `ventas.py` y `devoluciones.py`.
+`modelos.py` únicamente reexporta clases para compatibilidad.
+
+`SistemaVentas` delega en `ServicioCatalogo`, `ServicioLogistica`, `ServicioVentas`,
+`ServicioReportes` y `ServicioImportacion`. `ServicioBase` reúne carga de catálogo,
+consultas de objetos y el contexto transaccional; `representaciones.py` da forma a objetos
+ya calculados y `conversiones.py` concentra conversiones de CSV. La importación utiliza
+las mismas reglas del catálogo dentro de una única transacción.
+
+Las cantidades HTTP usan validación estricta antes de cualquier coerción booleana. Los
+modelos mantienen sus propias validaciones. Los ajustes de centavos y el total esperado
+obligatorio están descritos en RN-22, RN-26 y la sección de cotización.
+
+Esto reorganiza y corrige el alcance entregado: no añade compras con recepción separada,
+libros de inventario o caja, transferencia ni devoluciones de varias líneas. El esquema
+SQLite permanece igual y no se reescriben operaciones históricas.

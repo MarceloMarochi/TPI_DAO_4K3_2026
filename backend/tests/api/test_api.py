@@ -1,5 +1,7 @@
 """API HTTP: rutas, formato de importes y traducción de errores, sobre una base con datos de ejemplo."""
 
+from decimal import Decimal
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -29,8 +31,10 @@ def abastecer(cliente, destino="L01", producto="P001", cantidad=20, sufijo="1"):
 
 
 def venta(numero="V-1", medio="EFECTIVO", cantidad=2, **extra):
+    total = 4200 * cantidad * (Decimal("0.90") if medio == "EFECTIVO" else Decimal("1.10"))
     return {"numero": numero, "local_codigo": "L01", "medio_codigo": medio,
-            "items": [{"producto_codigo": "P001", "cantidad": cantidad}], **extra}
+            "items": [{"producto_codigo": "P001", "cantidad": cantidad}],
+            "total_esperado": str(total), **extra}
 
 
 def test_salud(cliente):
@@ -222,3 +226,51 @@ class TestCaja:
             "numero": "D-1", "venta_numero": "V-1", "detalle_id": linea, "cantidad": 2,
             "apta_reventa": True, "motivo": "X"})
         assert respuesta.status_code == 409
+
+
+class TestContratoEstricto:
+    @pytest.mark.parametrize("cantidad", [True, False, "2", 2.0, 1.5, 0, -1])
+    @pytest.mark.parametrize("ruta,cuerpo,campo", [
+        ("ingresos", {"numero": "IX", "producto_codigo": "P001", "proveedor_codigo": "PRV01", "costo_unitario": "1"}, "cantidad"),
+        ("ordenes", {"numero": "OX", "necesidades": [{"destino_codigo": "L01", "producto_codigo": "P001"}]}, "necesidades.0.cantidad"),
+        ("bultos", {"codigo": "BX", "orden_numero": "OX", "destino_codigo": "L01", "remito_numero": "RX", "lineas": [{"detalle_id": 1}]}, "lineas.0.cantidad"),
+        ("ventas/cotizacion", {"local_codigo": "L01", "medio_codigo": "EFECTIVO", "items": [{"producto_codigo": "P001"}]}, "items.0.cantidad"),
+        ("ventas", {"numero": "VX", "local_codigo": "L01", "medio_codigo": "EFECTIVO", "total_esperado": "1", "items": [{"producto_codigo": "P001"}]}, "items.0.cantidad"),
+        ("devoluciones", {"numero": "DX", "venta_numero": "VX", "detalle_id": 1, "apta_reventa": True, "motivo": "Cambio"}, "cantidad"),
+    ])
+    def test_cantidad_invalida_se_rechaza_antes_del_dominio(self, cliente, cantidad, ruta, cuerpo, campo):
+        import copy
+        datos = copy.deepcopy(cuerpo)
+        destino = datos
+        for parte in campo.split(".")[:-1]:
+            destino = destino[int(parte)] if parte.isdigit() else destino[parte]
+        destino["cantidad"] = cantidad
+        respuesta = cliente.post(f"/api/{ruta}", json=datos)
+        assert respuesta.status_code == 422
+        assert campo in [d["campo"] for d in respuesta.json()["detalles"]]
+        assert cliente.get("/api/ventas").json() == []
+
+    @pytest.mark.parametrize("valor", [True, False, "2", 2.0, 1.5, -1])
+    def test_minimos_enteros_estrictos(self, cliente, valor):
+        respuesta = cliente.put("/api/existencias/L01/P001/minimo", json={"minimo": valor})
+        assert respuesta.status_code == 422
+        assert respuesta.json()["detalles"][0]["campo"] == "minimo"
+
+    def test_minimo_cero_valido(self, cliente):
+        assert cliente.put("/api/existencias/L01/P001/minimo", json={"minimo": 0}).status_code == 200
+
+    @pytest.mark.parametrize("valor", [None, True, "NaN", "Infinity", "1.001", "-1"])
+    def test_total_esperado_invalido(self, cliente, valor):
+        abastecer(cliente)
+        r = cliente.post("/api/ventas", json=venta(total_esperado=valor))
+        assert r.status_code == 422
+        assert "total_esperado" in [d["campo"] for d in r.json()["detalles"]]
+        assert cliente.get("/api/ventas").json() == []
+        assert cliente.get("/api/existencias", params={"sucursal": "L01", "producto": "P001"}).json()[0]["disponible"] == 20
+
+    def test_total_esperado_no_puede_omitirse(self, cliente):
+        datos = venta()
+        datos.pop("total_esperado")
+        r = cliente.post("/api/ventas", json=datos)
+        assert r.status_code == 422
+        assert r.json()["detalles"][0]["campo"] == "total_esperado"

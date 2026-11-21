@@ -86,18 +86,18 @@ Este archivo consolida todo lo que está disperso en la carpeta. Es la **fuente 
 
 | Requisito | Cómo lo cubre el diseño | Dónde se implementa |
 | --- | --- | --- |
-| P1 Sucursales y CD | `Sucursal` con `es_cd`; exactamente un CD | `modelos.py`, `CatalogoDAO` |
-| P2 Productos, categorías, precios, mínimos, proveedores | `Producto` (categoría como texto), `Existencia.minimo`, proveedores como filas código/nombre | `modelos.py`, `CatalogoDAO`, CSV |
-| P3 Orden de reposición consolidada | `OrdenReposicion` + `DetalleReposicion`; `agregar_necesidad` suma producto+destino | `modelos.py`, `LogisticaDAO` |
-| P4 Bulto con remito y precinto | `Bulto` guarda `remito_numero` y `precinto_numero` únicos | `modelos.py`, `estados.py` |
+| P1 Sucursales y CD | `Sucursal` con `es_cd`; exactamente un CD | `catalogo_stock.py`, `CatalogoDAO` |
+| P2 Productos, categorías, precios, mínimos, proveedores | `Producto` (categoría como texto), `Existencia.minimo`, proveedores como filas código/nombre | `catalogo_stock.py`, `CatalogoDAO`, CSV |
+| P3 Orden de reposición consolidada | `OrdenReposicion` + `DetalleReposicion`; `agregar_necesidad` suma producto+destino | `reposicion.py`, `LogisticaDAO` |
+| P4 Bulto con remito y precinto | `Bulto` guarda `remito_numero` y `precinto_numero` únicos | `bultos.py`, `estados.py` |
 | P5 Despacho | `Precintado.despachar` pasa a `EnTransito` | `estados.py` |
 | P6 Recepción con control de precinto | `EnTransito.recibir(intacto)` pasa a `Recibido` o `Rechazado` | `estados.py` |
-| P7 Ventas, cobro, comprobante, devoluciones | `Venta` (Strategy `MedioPago`), `Devolucion`, comprobante PDF | `modelos.py`, `pagos.py`, `ExportadorPDF` |
-| V1 Stock disponible sólo tras Verificado | Sólo `Recibido.verificar(conforme=True)` acredita stock en destino | `estados.py`, `SistemaVentas` |
-| V2 Trazabilidad inmutable | `CambioEstado` inmutable; tabla sin UPDATE/DELETE (triggers) | `modelos.py`, `schema.sql` |
-| V3 No vender sin stock | `Existencia.retirar` valida; transacción antes de leer saldo | `modelos.py`, `SistemaVentas` |
-| V4 Sin duplicados | Validación en negocio y `UNIQUE` en SQLite | `SistemaVentas`, `schema.sql` |
-| V5 Devoluciones válidas | `Devolucion.validar` comprueba pertenencia y acumulado | `modelos.py`, `VentaDAO` |
+| P7 Ventas, cobro, comprobante, devoluciones | `Venta` (Strategy `MedioPago`), `Devolucion`, comprobante PDF | `ventas.py`, `devoluciones.py`, `pagos.py`, `ExportadorPDF` |
+| V1 Stock disponible sólo tras Verificado | Sólo `Recibido.verificar(conforme=True)` devuelve una transición con `acreditar=True`; `Bulto` la aplica | `estados.py`, `bultos.py`, `ServicioLogistica` |
+| V2 Trazabilidad inmutable | `CambioEstado` inmutable; tabla sin UPDATE/DELETE (triggers) | `bultos.py`, `schema.sql` |
+| V3 No vender sin stock | `Existencia.retirar` valida; transacción antes de leer saldo | `catalogo_stock.py`, `ventas.py`, `ServicioBase._escritura` |
+| V4 Sin duplicados | Validación en negocio y `UNIQUE` en SQLite | Servicios (`servicio_*.py`), `schema.sql` |
+| V5 Devoluciones válidas | `Devolucion.validar` comprueba pertenencia y acumulado | `devoluciones.py`, `VentaDAO` |
 | 2 patrones | **State** (bulto) y **Strategy** (medio de pago). DAO como patrón arquitectónico adicional | `estados.py`, `pagos.py`, `datos/` |
 | 4 reportes no triviales | R1 Ventas e ingresos, R2 Productos y margen, R3 Existencias y mínimos, R4 Rechazos | `ReportesDAO`, `ExportadorPDF` |
 
@@ -158,7 +158,8 @@ Navegador (React)
 Presentación servidor: AdaptadorAPI (rutas FastAPI + esquemas)   ← Uvicorn
    │
    ▼
-Negocio: SistemaVentas (coordina casos de uso y transacciones)
+Negocio: SistemaVentas (fachada) → ServicioCatalogo, ServicioLogistica, ServicioVentas,
+         ServicioReportes, ServicioImportacion (casos de uso y transacciones)
          Modelos + State + Strategy (validaciones y cálculos)
    │
    ▼
@@ -172,7 +173,7 @@ SQLite
 
 - React no calcula importes, stock, porcentajes ni estados permitidos: los recibe del servidor.
 - `AdaptadorAPI` no tiene SQL, fórmulas ni reglas de stock. Traduce errores a HTTP.
-- `SistemaVentas` no tiene SQL ni controles gráficos.
+- `SistemaVentas` y los servicios no tienen SQL ni controles gráficos.
 - Todo el SQL vive en los 4 DAOs.
 - Las validaciones de negocio se ejecutan aunque la llamada no venga de React.
 
@@ -221,7 +222,7 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 
 ### 7.2 State (7)
 
-`EstadoBulto` (ABC): `nombre()` y `permite_sucesor(nombre)` abstractos. `precintar`, `despachar`, `recibir`, `verificar` lanzan `ValueError` por defecto. Concretos: `Preparado`, `Precintado`, `EnTransito`, `Recibido`, `Verificado`, `Rechazado`. Ver sección 8.1.
+`EstadoBulto` (ABC): `nombre()` y `permite_sucesor(nombre)` abstractos. `precintar`, `despachar`, `recibir`, `verificar` lanzan `Conflicto` (subclase de `ValueError`, HTTP 409) por defecto; cada estado concreto redefine las que admite y **devuelve una `_Transicion`** (nuevo estado, motivo, precinto, intacto, acreditar) sin modificar el bulto. Concretos: `Preparado`, `Precintado`, `EnTransito`, `Recibido`, `Verificado`, `Rechazado`. Ver sección 8.1.
 
 ### 7.3 Strategy (3)
 
@@ -231,7 +232,7 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 
 | Clase | Responsabilidad | Operaciones |
 | --- | --- | --- |
-| **SistemaVentas** | Fachada de cinco servicios: Catálogo, Logística, Ventas, Reportes e Importación. Una instancia por solicitud; comparten conexión y transacciones completas | `guardar_catalogo(tipo, datos)`, `registrar_ingreso(datos)`, `crear_orden(necesidades)`, `preparar_bulto(datos)`, `precintar(codigo, numero)`, `despachar(codigo)`, `recibir(codigo, intacto, motivo)`, `verificar(codigo, conforme, motivo)`, `cotizar_venta(datos)`, `confirmar_venta(datos, medio)`, `devolver(datos)`, `importar_csv(ruta)`, `consultar_reporte(nombre, filtros)`, `consultar_catalogo(tipo, filtros)`, `consultar_orden`, `consultar_bulto`, `consultar_venta`, `consultar_devolucion`, `consultar_ingreso`, `configurar_minimo(sucursal, producto, minimo)`, `consultar_medios_pago()`, `consultar_existencias(filtros)` |
+| **SistemaVentas** | Fachada de cinco servicios: Catálogo, Logística, Ventas, Reportes e Importación. Una instancia por solicitud; comparten conexión y transacciones completas | `guardar_catalogo(tipo, datos)`, `registrar_ingreso(datos)`, `crear_orden(necesidades)`, `preparar_bulto(datos)`, `precintar(codigo, numero)`, `despachar(codigo)`, `recibir(codigo, intacto, motivo)`, `verificar(codigo, conforme, motivo)`, `cotizar_venta(datos)`, `confirmar_venta(datos)`, `devolver(datos)`, `importar_csv(tipo, ruta)`, `consultar_reporte(nombre, filtros)`, `consultar_catalogo(tipo, filtros)`, `consultar_orden`, `consultar_bulto`, `consultar_venta`, `consultar_devolucion`, `consultar_ingreso`, `configurar_minimo(sucursal, producto, minimo)`, `consultar_medios_pago()`, `consultar_existencias(filtros)` |
 | **CatalogoDAO** | Productos, sucursales, proveedores, existencias, ingresos | `guardar_producto`, `guardar_sucursal`, `guardar_proveedor`, `listar_catalogos`, `guardar_existencia`, `insertar_ingreso`, `buscar_ingreso`, `consultar_existencias` |
 | **LogisticaDAO** | Órdenes, bultos, historial | `guardar_orden`, `guardar_bulto`, `buscar_bulto`, `registrar_transicion`, `asignado_a_detalle`, `buscar_orden`, `listar_ordenes`, `listar_bultos` |
 | **VentaDAO** | Ventas, detalles, devoluciones | `insertar_venta`, `buscar_venta`, `insertar_devolucion`, `acumulado_devuelto`, `buscar_devolucion`, `listar_ventas` |
@@ -259,7 +260,7 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
   - `Conflicto`: la regla depende del estado actual (stock insuficiente, transición no permitida, duplicado, documento ya confirmado, total cambiado) → HTTP 409.
   - `ErrorImportacion`: lleva la lista de errores por fila (`fila`, `campo`, `mensaje`).
 - Convención de mensajes: los errores de un campo empiezan con su nombre en minúscula (`"precio: debe ser mayor que cero"`), lo que permite informar el campo en la importación CSV.
-- `SistemaVentas` guarda productos, sucursales y proveedores como **diccionarios por código** (el diagrama decía `list`): las búsquedas por código son directas.
+- `ServicioBase` (de la que heredan los servicios de catálogo, logística y ventas) guarda productos, sucursales y proveedores como **diccionarios por código** (el diagrama decía `list`): las búsquedas por código son directas.
 - Toda operación de escritura sigue el mismo patrón: abrir la transacción, recargar el catálogo dentro de ella, operar con los objetos del dominio, guardar con los DAOs y confirmar.
 - `guardar_catalogo(tipo, datos, alta=True)`: con `alta=True` un código existente es `Conflicto`; con `alta=False` (edición) un código inexistente es `NoEncontrado`. Un establecimiento no puede cambiar de local a CD ni al revés.
 - Las entradas y salidas son diccionarios simples; los importes viajan como `Decimal` y las fechas como `datetime`. La API sólo tiene que serializarlos.
@@ -270,10 +271,10 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 ### 7.5 Relaciones principales
 
 - **Composición:** Sucursal ◆ Existencia · OrdenReposicion ◆ DetalleReposicion · Bulto ◆ DetalleBulto · Bulto ◆ CambioEstado · Venta ◆ DetalleVenta.
-- **Agregación:** SistemaVentas ◇ Producto, Sucursal (cargados en la solicitud).
+- **Agregación:** ServicioBase ◇ Producto, Sucursal (cargados en la solicitud). SistemaVentas ◆ los cinco servicios.
 - **Herencia:** 6 estados → EstadoBulto; Efectivo, Tarjeta → MedioPago.
 - **Asociación:** Existencia→Producto; OrdenReposicion→Sucursal (origen CD); DetalleReposicion→Sucursal (destino), Producto; Bulto→OrdenReposicion, Sucursal (destino), EstadoBulto; DetalleBulto→DetalleReposicion; Venta→Sucursal (local), MedioPago; DetalleVenta→Producto; Devolucion→Venta, DetalleVenta.
-- **Dependencia:** SistemaVentas → 4 DAOs y ConexionSQLite; DAOs → ConexionSQLite; AdaptadorAPI → SistemaVentas, ExportadorPDF; ExportadorPDF → Venta.
+- **Dependencia:** cada servicio → su DAO (y `CatalogoDAO` vía `ServicioBase`) y ConexionSQLite; DAOs → ConexionSQLite; AdaptadorAPI → SistemaVentas, ExportadorPDF; ExportadorPDF → Venta.
 - Las multiplicidades `1..*` aplican a objetos guardados: no se persisten órdenes, bultos ni ventas sin detalles.
 
 ---
@@ -291,10 +292,10 @@ Composición: 12 de dominio + 7 de State + 3 de Strategy + 8 técnicas. Diagrama
 | En tránsito | Recibir con precinto roto (motivo obligatorio) | **Rechazado** | — (queda fuera de venta) |
 | Recibido | Verificar conforme | **Verificado** | **Acredita** disponible en el local |
 | Recibido | Verificar no conforme (motivo obligatorio) | **Rechazado** | — (queda fuera de venta) |
-| Verificado / Rechazado | Cualquier operación | `ValueError` | — |
+| Verificado / Rechazado | Cualquier operación | `Conflicto` (409) | — |
 
 - `Bulto` delega cada operación en `self._estado`. **Sin `if/elif` por tipo de estado.**
-- Cada transición agrega exactamente un `CambioEstado`. El setter de estado valida con `permite_sucesor`.
+- Cada transición agrega exactamente un `CambioEstado`. `Bulto._ejecutar` pide la transición al estado, valida con `permite_sucesor` y recién entonces aplica juntos estado, historial, precinto/recepción y acreditación.
 - Repetir una verificación falla y no vuelve a acreditar stock.
 - Rechazado no devuelve unidades al CD ni se considera pérdida definitiva.
 
@@ -334,7 +335,7 @@ Sirven para escribir un test por regla.
 - RN-12 Lo asignado a bultos para un detalle no supera lo solicitado.
 - RN-13 Al preparar, el CD debe tener stock suficiente; se descuenta una única vez.
 - RN-14 Remito y precinto únicos.
-- RN-15 Transiciones según la tabla 8.1; cualquier otra lanza `ValueError` (HTTP 409).
+- RN-15 Transiciones según la tabla 8.1; cualquier otra lanza `Conflicto` (subclase de `ValueError`, HTTP 409).
 - RN-16 Rechazo (por precinto o por verificación no conforme) exige motivo.
 - RN-17 Sólo Verificado acredita stock en destino.
 - RN-18 El historial no admite UPDATE ni DELETE.
@@ -423,7 +424,7 @@ El contrato vivo está en `http://localhost:8000/docs` (Swagger) y `/openapi.jso
 | General | `GET /api/salud` |
 
 Decisiones:
-- **Organización:** `app/api/adaptador.py` cumple el papel de `AdaptadorAPI`: la dependencia `obtener_sistema` crea una conexión y un `SistemaVentas` por solicitud y los cierra al terminar, y los manejadores traducen los errores. Las rutas están en `rutas_catalogo.py`, `rutas_logistica.py` y `rutas_caja.py`, y los esquemas Pydantic en `esquemas.py`.
+- **Organización:** `app/api/adaptador.py` cumple el papel de `AdaptadorAPI`: la dependencia `obtener_sistema` crea una conexión y un `SistemaVentas` por solicitud y los cierra al terminar, y los manejadores traducen los errores. Las rutas están en `rutas_catalogo.py`, `rutas_logistica.py`, `rutas_caja.py` y `rutas_reportes.py`, y los esquemas Pydantic en `esquemas.py`.
 - **Errores** con formato `{codigo, mensaje, detalles}`: `DATO_INVALIDO` (422), `IMPORTACION_INVALIDA` (422, con fila y campo), `NO_ENCONTRADO` (404) y `CONFLICTO` (409). Un `sqlite3.IntegrityError` también se responde como 409.
 - **Esquemas:** los de entrada rechazan campos desconocidos (`extra="forbid"`). Sólo validan la forma del mensaje; los valores los valida el dominio.
 - **Alta y edición:** el alta es `POST` con el código en el cuerpo. La edición es `PUT /{codigo}`: el código va sólo en la ruta, así que no se puede cambiar.
@@ -497,7 +498,7 @@ Comportamiento común: estados de carga, vacío, éxito y error; botón deshabil
 ### 12.1 Implementación (fase 5)
 
 - **`ReportesDAO`** (`datos/reportes_dao.py`) tiene una consulta SQL por reporte, más `rechazos_detalle` para los motivos. Sólo agrupa y suma: ventas y devoluciones se agregan en CTE separadas y después se unen por clave, así ningún cobro se multiplica por sus devoluciones.
-- **`SistemaVentas.consultar_reporte(nombre, filtros)`** valida el período y calcula las fórmulas (neto, unidades netas, margen, faltante, porcentaje), los totales, el ranking y la serie del gráfico. Devuelve `{reporte, titulo, generado, filtros, filas, totales}`; R1 agrega `grafico` y R4 agrega `motivos`. El JSON y el PDF salen de este mismo resultado.
+- **`SistemaVentas.consultar_reporte(nombre, filtros)`** (delegado en `ServicioReportes`) valida el período y calcula las fórmulas (neto, unidades netas, margen, faltante, porcentaje), los totales, el ranking y la serie del gráfico. Devuelve `{reporte, titulo, generado, filtros, filas, totales}`; R1 agrega `grafico` y R4 agrega `motivos`. El JSON y el PDF salen de este mismo resultado.
 - **Período:** `desde` y `hasta` son fechas (`AAAA-MM-DD`) inclusivas en hora de Buenos Aires. Un período invertido o incompleto da 422.
 - **R3** cuenta las unidades según el estado **actual** de cada bulto (no recorre el historial), así ninguna unidad se cuenta dos veces. Filtro adicional `solo_bajo_minimo`.
 - **R4** normaliza los motivos (espacios y mayúsculas) antes de agruparlos: "Precinto roto" y "  precinto ROTO " son el mismo motivo.
@@ -551,7 +552,7 @@ Comportamiento común: estados de carga, vacío, éxito y error; botón deshabil
 ├── README.md                  ← cómo instalar, correr y probar
 ├── docs/                      ← este documento, diagramas, enunciado
 ├── backend/
-│   ├── pyproject.toml         ← dependencias (fastapi, uvicorn, reportlab, matplotlib, pytest)
+│   ├── requirements.txt       ← dependencias (fastapi, uvicorn, reportlab, matplotlib, pytest)
 │   ├── app/
 │   │   ├── main.py            ← crea la app FastAPI
 │   │   ├── config.py          ← ruta de la base de datos y tasas
@@ -559,7 +560,8 @@ Comportamiento común: estados de carga, vacío, éxito y error; botón deshabil
 │   │   ├── negocio/
 │   │   │   ├── modelos.py     ← exportaciones compatibles de las 12 clases de dominio
 │   │   │   ├── catalogo_stock.py, reposicion.py, bultos.py, ventas.py, devoluciones.py
-│   │   │   ├── servicio_*.py   ← cinco servicios del alcance simplificado
+│   │   │   ├── servicio_base.py, servicio_*.py ← base común y cinco servicios de casos de uso
+│   │   │   ├── comunes.py, errores.py, conversiones.py, representaciones.py, base_modelos.py
 │   │   │   ├── estados.py     ← State
 │   │   │   ├── pagos.py       ← Strategy
 │   │   │   └── sistema.py     ← fachada SistemaVentas
@@ -614,7 +616,9 @@ La implementación conserva las doce entidades de dominio, ahora repartidas en
 `ServicioReportes` y `ServicioImportacion`. `ServicioBase` reúne carga de catálogo,
 consultas de objetos y el contexto transaccional; `representaciones.py` da forma a objetos
 ya calculados y `conversiones.py` concentra conversiones de CSV. La importación utiliza
-las mismas reglas del catálogo dentro de una única transacción.
+las mismas reglas del catálogo dentro de una única transacción: `ServicioImportacion` lee el
+archivo y delega las filas en `ServicioCatalogo.importar_filas`, sin invocar métodos
+protegidos de otra clase.
 
 Las cantidades HTTP usan validación estricta antes de cualquier coerción booleana. Los
 modelos mantienen sus propias validaciones. Los ajustes de centavos y el total esperado

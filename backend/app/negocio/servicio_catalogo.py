@@ -1,9 +1,9 @@
-"""Casos de uso de catalogo del alcance simplificado."""
+"""Casos de uso de catálogo del alcance simplificado."""
 from __future__ import annotations
 
 from app.negocio.comunes import validar_texto
-from app.negocio.errores import Conflicto, NoEncontrado
-from app.negocio.conversiones import _a_entero, _a_bool
+from app.negocio.errores import Conflicto, ErrorImportacion, NoEncontrado
+from app.negocio.conversiones import _a_entero, _a_bool, _error_de_fila
 from app.negocio.servicio_base import ServicioBase
 from app.negocio.catalogo_stock import Producto, Sucursal, IngresoStock
 from app.negocio.representaciones import _producto_a_dict, _sucursal_a_dict, _ingreso_a_dict
@@ -112,6 +112,37 @@ class ServicioCatalogo(ServicioBase):
         self._catalogo.guardar_producto(ingreso.producto)  # costo de referencia actualizado
         self._catalogo.guardar_existencias(cd)
         return _ingreso_a_dict(ingreso)
+
+    def importar_filas(self, tipo: str, filas: list[tuple[int, dict]]) -> int:
+        """Aplica filas ya leídas de un CSV con las mismas reglas del alta, en una única transacción.
+
+        Valida todas las filas; si alguna falla lanza ErrorImportacion (ROLLBACK) y no se importa ninguna.
+        tipo: proveedores | sucursales | productos | ingresos | minimos
+        """
+        with self._escritura():
+            errores = []
+            for numero_fila, fila in filas:
+                try:
+                    self._importar_fila(tipo, fila)
+                except ValueError as error:  # incluye NoEncontrado y Conflicto
+                    errores.append(_error_de_fila(numero_fila, error))
+            if errores:
+                raise ErrorImportacion(errores)  # provoca el ROLLBACK
+        return len(filas)
+
+    def _importar_fila(self, tipo, fila) -> None:
+        if tipo == "proveedores":
+            self._guardar_proveedor(fila, alta=True)
+        elif tipo == "sucursales":
+            self._guardar_sucursal(fila, alta=True)
+        elif tipo == "productos":
+            self._guardar_producto(fila, alta=True)
+        elif tipo == "ingresos":
+            self._registrar_ingreso(fila)
+        elif tipo == "minimos":
+            self._configurar_minimo(fila.get("sucursal_codigo"), fila.get("producto_codigo"), fila.get("minimo"))
+        else:
+            raise ValueError(f"tipo: archivo desconocido ({tipo})")
 
     def consultar_catalogo(self, tipo: str | None = None) -> dict | list:
         catalogos = self._catalogo.listar_catalogos()

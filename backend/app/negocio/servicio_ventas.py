@@ -3,8 +3,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from app import config
-from app.negocio.comunes import validar_texto
-from app.negocio.comunes import validar_total_esperado
+from app.negocio.comunes import validar_texto, validar_total_esperado
 from app.negocio.errores import Conflicto, NoEncontrado
 from app.negocio.conversiones import _a_entero, _a_bool
 from app.negocio.servicio_base import ServicioBase

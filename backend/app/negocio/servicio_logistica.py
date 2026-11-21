@@ -1,4 +1,4 @@
-"""Casos de uso de logistica del alcance simplificado."""
+"""Casos de uso de logística del alcance simplificado."""
 from __future__ import annotations
 
 from app.negocio.comunes import validar_texto

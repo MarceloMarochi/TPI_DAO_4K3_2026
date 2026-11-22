@@ -2,7 +2,7 @@ import { useState } from "react"
 
 import { EstadoConsulta } from "@/components/comunes"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useCatalogos } from "@/hooks/useCatalogos"
+import { avisarCambioDeCatalogos, useCatalogos } from "@/hooks/useCatalogos"
 import { CATALOGOS, GrillaCatalogo } from "./GrillaCatalogo"
 import { FormularioIngreso, ImportarCSV, ListaIngresos, PanelExistencias } from "./PanelesStock"
 
@@ -12,7 +12,7 @@ export function VistaCatalogos() {
   const [version, setVersion] = useState(0)
   const actualizar = () => {
     setVersion((v) => v + 1)
-    void catalogos.recargar()
+    avisarCambioDeCatalogos()
   }
 
   return (
@@ -27,7 +27,7 @@ export function VistaCatalogos() {
 
         {CATALOGOS.map((c) => (
           <TabsContent key={c.tipo} value={c.tipo}>
-            <GrillaCatalogo key={version} config={c} proveedores={catalogos.proveedores} alCambiar={() => void catalogos.recargar()} />
+            <GrillaCatalogo key={version} config={c} proveedores={catalogos.proveedores} alCambiar={avisarCambioDeCatalogos} />
           </TabsContent>
         ))}
         <TabsContent value="existencias">

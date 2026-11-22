@@ -434,11 +434,13 @@ Decisiones:
 
 ### 11.3 Las 4 pantallas
 
+> Desde la revisión del 22/11/2026 estas áreas se reparten según dónde se opera (CD o local). Ver sección 18.
+
 | Área | Qué hace |
 | --- | --- |
 | **Catálogos y stock** | Grilla reutilizable para productos, sucursales y proveedores (alta, edición, búsqueda; sin bajas). Panel de existencias (sólo el mínimo es editable). Formulario de ingreso al CD. Importación CSV con errores por fila |
 | **Logística** | Alta y consulta de órdenes con pendientes. Preparación de bulto (orden + destino + líneas, código y remito). Tabla de bultos filtrable por estado y destino; detalle con contenido e historial. Botones Precintar, Despachar, Recibir y Verificar según las acciones permitidas |
-| **Caja** | Local de caja (selector dentro de la pestaña), buscador de productos, cantidades, medio de pago; cotización del servidor; confirmación; descarga del comprobante PDF. Devoluciones: buscar venta, elegir línea, cantidad, aptitud y motivo |
+| **Caja** | Local en el que se opera, buscador de productos, cantidades, medio de pago; cotización del servidor; confirmación; descarga del comprobante PDF. Devoluciones: buscar venta, elegir línea, cantidad, aptitud y motivo |
 | **Reportes** | Selector R1 a R4, filtros, tabla con totales y descarga PDF con los mismos filtros |
 
 Comportamiento común: estados de carga, vacío, éxito y error; botón deshabilitado mientras hay una solicitud pendiente; cambiar de local con un borrador pide confirmación.
@@ -454,7 +456,8 @@ Comportamiento común: estados de carga, vacío, éxito y error; botón deshabil
 | `lib/tipos.ts` | Tipos TypeScript que reflejan los esquemas de la API |
 | `lib/api.ts` | Cliente HTTP tipado. Distingue `ErrorApi` (el servidor respondió 422, 404 o 409) de `ErrorRed` (no hubo respuesta: la operación pudo haberse registrado) |
 | `lib/formato.ts` | Importes y fechas en formato argentino, etiquetas de estados y medios, generador de números de documento |
-| `store/contexto.ts` | Zustand: local de caja y borrador de venta (`numero`, `medio`, `items` y `version`) |
+| `store/contexto.ts` | Zustand: establecimiento en el que se opera (`sucursalCodigo`, CD o local) y borrador de venta (`numero`, `medio`, `items` y `version`) |
+| `lib/contextoOperativo.ts` | Qué áreas y qué acciones del bulto corresponden al CD y cuáles a un local (sección 18) |
 | `hooks/` | `useConsulta` (carga, error y recarga), `useAccion` (escrituras con `pendiente`), `useCatalogos` |
 | `components/comunes.tsx` | `Seccion`, `MensajeError` (con errores por fila), `EstadoConsulta`, `Campo`, `Seleccion`, `BadgeEstado` |
 | `components/ui/` | Componentes de shadcn/ui generados con su CLI |
@@ -641,7 +644,7 @@ Cambios surgidos de probar el sistema desde la UI. No modifican reglas de negoci
 | El detalle del bulto muestra cada línea **respecto de la orden** ("6 de 10 solicitadas") y la marca como *Envío parcial* o *Línea completa*. La respuesta del bulto agrega `solicitado` en cada detalle | `representaciones._bulto_a_dict`, `PanelBultos.tsx` |
 | Los paneles de orden y de bulto tienen una ✕ para cerrarlos; el error de preparación se limpia al corregir los datos | `PanelOrdenes.tsx`, `PanelBultos.tsx` |
 | Precintar **propone un número de precinto** con la convención del sistema (`PR-…`); si el sello trae otro número impreso, se reemplaza | `PanelBultos.tsx` |
-| El selector del **local de caja** pasó del encabezado a la pestaña Caja, que es la única que lo usa | `vistas/caja/SelectorLocal.tsx` |
+| El selector del **local de caja** pasó del encabezado a la pestaña Caja, que es la única que lo usa. *Reemplazado por el selector "Operando en" de la sección 18* | `vistas/caja/` |
 | Campos de formulario alineados aunque uno tenga texto de ayuda (`Campo` con `content-start`) | `components/comunes.tsx` |
 | La tabla `ordenes` se renombró **`ordenes_reposicion`**, como `detalles_reposicion`. `ConexionSQLite.crear_esquema` renombra la tabla en bases creadas antes del cambio, y SQLite actualiza las claves foráneas que la referencian | `schema.sql`, `conexion.py` |
 
@@ -649,4 +652,33 @@ Cambios surgidos de probar el sistema desde la UI. No modifican reglas de negoci
 
 - **Códigos como clave primaria.** Son claves naturales del negocio (código de producto, número de remito o de precinto). Un `id` autonumérico no evitaría duplicados, porque el código igual tendría que ser `UNIQUE`. Donde no hay código de negocio ya se usa id autonumérico (`detalles_reposicion`, `detalles_venta`). El problema de que el usuario invente códigos se resolvió proponiéndolos.
 - **`created_at` en todas las tablas.** Todos los movimientos ya tienen fecha (ingresos, órdenes, ventas, devoluciones y cada transición del bulto en `historial_estados`). En los catálogos aportaría poco.
+
+## 18. Contexto operativo: CD o local (22/11/2026)
+
+**Problema.** La interfaz mostraba todo junto, como si una sola persona hiciera desde el mismo escritorio tareas que en la realidad ocurren en lugares físicos distintos: el CD ingresaba mercadería y despachaba bultos, pero en la misma pantalla se podía recibirlos y venderlos en un local.
+
+**Decisión.** Antes de operar se elige **dónde se está** (selector "Operando en" del encabezado, o la pantalla inicial). Cada lugar ve sólo lo propio:
+
+| Operando en | Áreas | Acciones sobre el bulto |
+| --- | --- | --- |
+| **Centro de Distribución** | Catálogos y stock (catálogos, existencias y mínimos de todos los establecimientos, ingreso al CD, importación CSV) · Logística (órdenes, preparación, despacho y seguimiento de todos los bultos) · Reportes | Precintar, Despachar |
+| **Un local** | Recepción (sus bultos desde que salen del CD: En tránsito, Recibido, Verificado, Rechazado) · Caja (venta y devoluciones) · Stock del local (sólo lectura) | Recibir, Verificar |
+
+Cuando el próximo paso del bulto corresponde al otro lugar, el detalle lo indica ("Próximo paso: Recibir, a cargo de Local Centro").
+
+**Por qué la orden la arma el CD.** En el diseño original había una `SolicitudReposicion` del local al CD; se eliminó al simplificar (sección 4). La `OrdenReposicion` tiene origen siempre en el CD y consolida necesidades de varios locales, así que crearla es tarea del CD. El local expresa su necesidad a través de los **mínimos**: en "Stock del local" ve su faltante, que es lo que el CD repone.
+
+**Qué no es.**
+
+- **No es seguridad.** No hay usuarios ni autenticación (fuera de alcance): el backend no sabe quién llama y la API no cambió. Es contexto operativo de la interfaz, igual que antes lo era el "local de caja".
+- **No reemplaza al patrón State.** El servidor sigue informando qué acciones admite el bulto según su estado (`acciones_permitidas`). El contexto sólo filtra cuáles de esas acciones se ofrecen en este lugar (`lib/contextoOperativo.ts`, `accionesEnAmbito`).
+
+**Detalles de implementación.**
+
+- `store/contexto.ts`: `localCodigo` pasó a `sucursalCodigo` (CD o local). Cambiar de establecimiento con una venta en preparación pide confirmación y descarta el borrador, como antes.
+- `App.tsx` arma las pestañas con `AREAS_DEL_AMBITO`. Si el establecimiento elegido no tiene el área abierta, se muestra la primera.
+- `PanelBultos` recibe `ambito` y, en un local, `destinoFijo`. `PanelExistencias` recibe `sucursalFija` y `minimoEditable` (los mínimos los define el CD).
+- Con la base vacía, la pantalla inicial permite importar establecimientos por CSV.
+- Los catálogos se recargan en todas las vistas cuando cambian (`avisarCambioDeCatalogos`), así un local nuevo aparece enseguida en el selector.
+- Pruebas: `frontend/tests/contextoOperativo.test.ts`.
 

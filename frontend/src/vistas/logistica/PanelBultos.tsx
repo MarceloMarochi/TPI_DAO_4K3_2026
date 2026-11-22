@@ -12,50 +12,67 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useAccion, useConsulta } from "@/hooks/useConsulta"
 import { api } from "@/lib/api"
+import { ESTADOS_VISIBLES_EN_LOCAL, accionPendienteEnOtroLugar, accionesEnAmbito, type Ambito } from "@/lib/contextoOperativo"
 import { ETIQUETA_ACCION, ETIQUETA_ESTADO, fechaHora, generarNumero } from "@/lib/formato"
 import type { AccionBulto, Bulto, EstadoBulto } from "@/lib/tipos"
 import { cn } from "@/lib/utils"
 
-const OPCIONES_ESTADO: Opcion[] = [
+const opcionesEstado = (ambito: Ambito): Opcion[] => [
   { valor: "", etiqueta: "Todos" },
-  ...(Object.entries(ETIQUETA_ESTADO) as [EstadoBulto, string][]).map(([valor, etiqueta]) => ({ valor, etiqueta })),
+  ...(Object.entries(ETIQUETA_ESTADO) as [EstadoBulto, string][])
+    .filter(([valor]) => ambito === "cd" || ESTADOS_VISIBLES_EN_LOCAL.includes(valor))
+    .map(([valor, etiqueta]) => ({ valor, etiqueta })),
 ]
 
-export function PanelBultos({ opcionesLocales, nombreSucursal, seleccionInicial }: {
+/**
+ * Bultos vistos desde un lugar: el CD ve todos y puede precintar y despachar;
+ * un local ve sólo los suyos desde que salen del CD, y puede recibir y verificar.
+ */
+export function PanelBultos({ ambito, destinoFijo, opcionesLocales, nombreSucursal, seleccionInicial }: {
+  ambito: Ambito
+  destinoFijo?: string
   opcionesLocales: Opcion[]
   nombreSucursal: (codigo: string) => string
   seleccionInicial: string | null
 }) {
   const [estado, setEstado] = useState("")
-  const [destino, setDestino] = useState("")
+  const [destinoElegido, setDestino] = useState("")
+  const destino = destinoFijo ?? destinoElegido
   const lista = useConsulta(() => api.bultos({ estado, destino }), [estado, destino])
+  const bultos = (lista.datos ?? []).filter((b) => ambito === "cd" || ESTADOS_VISIBLES_EN_LOCAL.includes(b.estado))
   const [seleccionado, setSeleccionado] = useState<string | null>(seleccionInicial)
   const detalle = useConsulta(() => (seleccionado ? api.bulto(seleccionado) : Promise.resolve(null)), [seleccionado])
 
   return (
     <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
-      <Seccion titulo="Bultos" descripcion="Elegí un bulto para ver su contenido, su historial y las acciones disponibles.">
+      <Seccion titulo={ambito === "cd" ? "Bultos" : "Bultos para este local"}
+        descripcion={ambito === "cd"
+          ? "Elegí un bulto para ver su contenido e historial. Desde el CD se precinta y se despacha; la recepción y la verificación las hace el local destino."
+          : "Bultos despachados por el CD hacia este local. Al llegar se controla el precinto (Recibir) y después el contenido contra el remito (Verificar)."}>
         <div className="mb-4 grid gap-3 sm:grid-cols-2">
-          <Campo etiqueta="Estado"><Seleccion valor={estado} onCambio={setEstado} opciones={OPCIONES_ESTADO} /></Campo>
-          <Campo etiqueta="Destino"><Seleccion valor={destino} onCambio={setDestino} opciones={[{ valor: "", etiqueta: "Todos" }, ...opcionesLocales]} /></Campo>
+          <Campo etiqueta="Estado"><Seleccion valor={estado} onCambio={setEstado} opciones={opcionesEstado(ambito)} /></Campo>
+          {!destinoFijo && (
+            <Campo etiqueta="Destino"><Seleccion valor={destinoElegido} onCambio={setDestino} opciones={[{ valor: "", etiqueta: "Todos" }, ...opcionesLocales]} /></Campo>
+          )}
         </div>
-        <EstadoConsulta cargando={lista.cargando} error={lista.error} vacio={(lista.datos ?? []).length === 0} mensajeVacio="No hay bultos con esos filtros.">
+        <EstadoConsulta cargando={lista.cargando} error={lista.error} vacio={bultos.length === 0}
+          mensajeVacio={ambito === "cd" ? "No hay bultos con esos filtros." : "No hay bultos en camino ni recibidos para este local."}>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Bulto</TableHead>
-                <TableHead>Destino</TableHead>
+                {!destinoFijo && <TableHead>Destino</TableHead>}
                 <TableHead>Estado</TableHead>
                 <TableHead className={num}>Unidades</TableHead>
                 <TableHead>Último cambio</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(lista.datos ?? []).map((b) => (
+              {bultos.map((b) => (
                 <TableRow key={b.codigo} onClick={() => setSeleccionado(b.codigo)}
                   className={cn("cursor-pointer", seleccionado === b.codigo && "bg-muted")}>
                   <TableCell className="font-medium">{b.codigo}</TableCell>
-                  <TableCell>{b.destino_nombre}</TableCell>
+                  {!destinoFijo && <TableCell>{b.destino_nombre}</TableCell>}
                   <TableCell><BadgeEstado estado={b.estado} /></TableCell>
                   <TableCell className={num}>{b.unidades}</TableCell>
                   <TableCell>{fechaHora(b.fecha_ultimo_cambio)}</TableCell>
@@ -69,7 +86,7 @@ export function PanelBultos({ opcionesLocales, nombreSucursal, seleccionInicial 
       {seleccionado ? (
         <EstadoConsulta cargando={detalle.cargando && !detalle.datos} error={detalle.error}>
           {detalle.datos && (
-            <DetalleBulto bulto={detalle.datos} nombreSucursal={nombreSucursal} alCerrar={() => setSeleccionado(null)}
+            <DetalleBulto bulto={detalle.datos} ambito={ambito} nombreSucursal={nombreSucursal} alCerrar={() => setSeleccionado(null)}
               alCambiar={() => { void detalle.recargar(); void lista.recargar() }} />
           )}
         </EstadoConsulta>
@@ -80,13 +97,17 @@ export function PanelBultos({ opcionesLocales, nombreSucursal, seleccionInicial 
   )
 }
 
-function DetalleBulto({ bulto, nombreSucursal, alCerrar, alCambiar }: {
+function DetalleBulto({ bulto, ambito, nombreSucursal, alCerrar, alCambiar }: {
   bulto: Bulto
+  ambito: Ambito
   nombreSucursal: (codigo: string) => string
   alCerrar: () => void
   alCambiar: () => void
 }) {
   const [accion, setAccion] = useState<AccionBulto | null>(null)
+  // El servidor dice qué admite el estado (patrón State); el contexto decide cuáles se hacen en este lugar.
+  const acciones = accionesEnAmbito(bulto.acciones_permitidas, ambito)
+  const enOtroLugar = accionPendienteEnOtroLugar(bulto.acciones_permitidas, ambito)
 
   return (
     <Seccion titulo={`Bulto ${bulto.codigo}`} descripcion={`Orden ${bulto.orden_numero} → ${nombreSucursal(bulto.destino_codigo)}`}
@@ -126,13 +147,19 @@ function DetalleBulto({ bulto, nombreSucursal, alCerrar, alCambiar }: {
         ))}
       </ol>
 
-      {bulto.acciones_permitidas.length > 0 ? (
+      {acciones.length > 0 ? (
         <div className="flex gap-2 border-t pt-4">
           {/* Los botones salen de lo que informa el servidor: el frontend no reimplementa el patrón State. */}
-          {bulto.acciones_permitidas.map((a) => (
+          {acciones.map((a) => (
             <Button key={a} onClick={() => setAccion(a)}>{ETIQUETA_ACCION[a]}</Button>
           ))}
         </div>
+      ) : enOtroLugar ? (
+        <p className="border-t pt-4 text-sm text-muted-foreground">
+          Próximo paso: <strong>{ETIQUETA_ACCION[enOtroLugar.accion]}</strong>, a cargo {enOtroLugar.lugar === "cd"
+            ? "del Centro de Distribución"
+            : `de ${nombreSucursal(bulto.destino_codigo)}`}.
+        </p>
       ) : (
         <p className="border-t pt-4 text-sm text-muted-foreground">Estado final: no admite más operaciones.</p>
       )}

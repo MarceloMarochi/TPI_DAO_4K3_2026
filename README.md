@@ -41,7 +41,7 @@ docs/               documento maestro, enunciado, diagrama, presentación
 frontend/
   src/
     lib/            cliente HTTP tipado, tipos de la API, formato
-    store/          Zustand: local de caja y borrador de venta
+    store/          Zustand: establecimiento en el que se opera (CD o local) y borrador de venta
     hooks/          consultas y acciones
     components/     componentes comunes y shadcn/ui (components/ui)
     vistas/         catalogos, logistica, caja, reportes

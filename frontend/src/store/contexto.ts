@@ -1,4 +1,5 @@
-// Contexto compartido: el borrador y la confirmación sobreviven al cambio de vista.
+// Contexto compartido: establecimiento en el que se opera (CD o local), borrador de venta y confirmación.
+// El borrador y la confirmación sobreviven al cambio de vista; cambiar de establecimiento descarta el borrador.
 import { create } from "zustand"
 import { generarNumero } from "../lib/formato"
 import { api, ErrorApi, ErrorRed } from "../lib/api"
@@ -27,12 +28,12 @@ interface Operacion {
 }
 
 interface Contexto {
-  localCodigo: string | null
+  sucursalCodigo: string | null
   borrador: Borrador
   operacion: Operacion | null
   confirmada: Venta | null
   errorVenta: unknown
-  seleccionarLocal: (codigo: string | null) => void
+  seleccionarSucursal: (codigo: string | null) => void
   agregarItem: (item: Omit<ItemBorrador, "cantidad">) => void
   cambiarCantidad: (productoCodigo: string, cantidad: number) => void
   quitarItem: (productoCodigo: string) => void
@@ -101,9 +102,9 @@ export function crearContexto(transporte: TransporteVentas = api) {
     }
 
     return {
-      localCodigo: null, borrador: borradorNuevo(), operacion: null, confirmada: null, errorVenta: null,
-      seleccionarLocal: (codigo) => {
-        if (!get().operacion) set({ localCodigo: codigo, borrador: borradorNuevo(), confirmada: null, errorVenta: null })
+      sucursalCodigo: null, borrador: borradorNuevo(), operacion: null, confirmada: null, errorVenta: null,
+      seleccionarSucursal: (codigo) => {
+        if (!get().operacion) set({ sucursalCodigo: codigo, borrador: borradorNuevo(), confirmada: null, errorVenta: null })
       },
       agregarItem: (item) => modificar((borrador) => {
         const existe = borrador.items.some((i) => i.producto_codigo === item.producto_codigo)
@@ -121,10 +122,10 @@ export function crearContexto(transporte: TransporteVentas = api) {
       cambiarMedio: (medio) => modificar((borrador) => editar(borrador, { medio })),
       descartarBorrador: () => modificar(() => borradorNuevo()),
       confirmarVenta: async (total, version) => {
-        const { borrador, localCodigo, operacion } = get()
-        if (operacion || !localCodigo || borrador.version !== version || !borrador.items.length) return
+        const { borrador, sucursalCodigo, operacion } = get()
+        if (operacion || !sucursalCodigo || borrador.version !== version || !borrador.items.length) return
         const datos = Object.freeze({
-          numero: borrador.numero, local_codigo: localCodigo, medio_codigo: borrador.medio,
+          numero: borrador.numero, local_codigo: sucursalCodigo, medio_codigo: borrador.medio,
           total_esperado: total,
           items: Object.freeze(borrador.items.map((i) => Object.freeze({ producto_codigo: i.producto_codigo, cantidad: i.cantidad }))),
         })

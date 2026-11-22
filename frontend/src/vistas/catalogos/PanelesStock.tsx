@@ -16,11 +16,16 @@ import type { Ingreso, Producto, ResultadoImportacion, TipoImportacion } from "@
 const TODOS: Opcion = { valor: "", etiqueta: "Todos" }
 
 /** Disponible y mínimo por establecimiento. Sólo el mínimo es editable: el disponible cambia por operaciones. */
-export function PanelExistencias({ opcionesSucursales, opcionesProductos }: {
+export function PanelExistencias({ opcionesSucursales, opcionesProductos, sucursalFija, minimoEditable = true }: {
   opcionesSucursales: Opcion[]
   opcionesProductos: Opcion[]
+  /** En un local se ven sólo sus existencias. */
+  sucursalFija?: string
+  /** Los mínimos los configura el CD, que planifica la reposición. */
+  minimoEditable?: boolean
 }) {
-  const [sucursal, setSucursal] = useState("")
+  const [sucursalElegida, setSucursal] = useState("")
+  const sucursal = sucursalFija ?? sucursalElegida
   const [producto, setProducto] = useState("")
   const [soloBajoMinimo, setSoloBajoMinimo] = useState(false)
   const { datos, cargando, error, recargar } = useConsulta(() => api.existencias({ sucursal, producto }), [sucursal, producto])
@@ -41,9 +46,13 @@ export function PanelExistencias({ opcionesSucursales, opcionesProductos }: {
   }
 
   return (
-    <Seccion titulo="Existencias" descripcion="Disponible: unidades que se pueden vender o enviar ya. Mínimo: el nivel que se quiere mantener (es lo único editable). Faltante: lo que falta para llegar al mínimo; filtrando «Sólo debajo del mínimo» se ve qué reponer en la próxima orden. Lo que está en tránsito, sin verificar o rechazado aparece en el reporte R3.">
+    <Seccion titulo="Existencias" descripcion={minimoEditable
+      ? "Disponible: unidades que se pueden vender o enviar ya. Mínimo: el nivel que se quiere mantener (es lo único editable). Faltante: lo que falta para llegar al mínimo; filtrando «Sólo debajo del mínimo» se ve qué reponer en la próxima orden. Lo que está en tránsito, sin verificar o rechazado aparece en el reporte R3."
+      : "Disponible: lo que el local puede vender ya. Mínimo: el nivel que el CD busca mantener en el local. Faltante: lo que el CD debería reponer en la próxima orden. Lo que viene en camino se ve en Recepción."}>
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
-        <Campo etiqueta="Establecimiento"><Seleccion valor={sucursal} onCambio={setSucursal} opciones={[TODOS, ...opcionesSucursales]} /></Campo>
+        {!sucursalFija && (
+          <Campo etiqueta="Establecimiento"><Seleccion valor={sucursalElegida} onCambio={setSucursal} opciones={[TODOS, ...opcionesSucursales]} /></Campo>
+        )}
         <Campo etiqueta="Producto"><Seleccion valor={producto} onCambio={setProducto} opciones={[TODOS, ...opcionesProductos]} /></Campo>
         <label className="flex items-end gap-2 pb-2 text-sm">
           <Checkbox checked={soloBajoMinimo} onCheckedChange={setSoloBajoMinimo} /> Sólo debajo del mínimo
@@ -54,7 +63,7 @@ export function PanelExistencias({ opcionesSucursales, opcionesProductos }: {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Establecimiento</TableHead>
+              {!sucursalFija && <TableHead>Establecimiento</TableHead>}
               <TableHead>Producto</TableHead>
               <TableHead className={num}>Disponible</TableHead>
               <TableHead className="w-40">Mínimo</TableHead>
@@ -67,10 +76,11 @@ export function PanelExistencias({ opcionesSucursales, opcionesProductos }: {
               const editado = minimos[k] !== undefined && minimos[k] !== String(e.minimo)
               return (
                 <TableRow key={k}>
-                  <TableCell>{e.sucursal_nombre}</TableCell>
+                  {!sucursalFija && <TableCell>{e.sucursal_nombre}</TableCell>}
                   <TableCell>{e.producto_codigo} · {e.producto_nombre}</TableCell>
                   <TableCell className={num}>{e.disponible}</TableCell>
                   <TableCell>
+                    {!minimoEditable ? <span>{e.minimo}</span> : (
                     <div className="flex items-center gap-1">
                       <Input className="h-7 w-20" inputMode="numeric" value={minimos[k] ?? String(e.minimo)}
                         onChange={(ev) => setMinimos({ ...minimos, [k]: ev.target.value })} aria-label={`Mínimo de ${e.producto_codigo}`} />
@@ -81,6 +91,7 @@ export function PanelExistencias({ opcionesSucursales, opcionesProductos }: {
                         </Button>
                       )}
                     </div>
+                    )}
                   </TableCell>
                   <TableCell className={num}>
                     {e.faltante > 0 ? <Badge variant="destructive">{e.faltante}</Badge> : <span className="text-muted-foreground">0</span>}

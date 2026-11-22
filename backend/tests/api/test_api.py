@@ -104,6 +104,15 @@ class TestCatalogos:
         assert cliente.get("/api/existencias", params={"sucursal": "CD", "producto": "P001"}).json()[0][
             "disponible"] == 210
 
+    def test_listar_ingresos_del_mas_reciente(self, cliente):
+        for numero in ("ING-A", "ING-B"):
+            cliente.post("/api/ingresos", json={
+                "numero": numero, "producto_codigo": "P001", "proveedor_codigo": "PRV01",
+                "cantidad": 1, "costo_unitario": "100"})
+        numeros = [i["numero"] for i in cliente.get("/api/ingresos").json()]
+        assert numeros[:2] == ["ING-B", "ING-A"]
+        assert len(cliente.get("/api/ingresos", params={"limite": 1}).json()) == 1
+
 
 class TestImportacion:
     def test_csv_valido(self, cliente):
@@ -150,6 +159,14 @@ class TestLogistica:
             "codigo": "B-1", "orden_numero": "O-1", "destino_codigo": "L01", "remito_numero": "R-1",
             "lineas": [{"detalle_id": orden["detalles"][0]["id"], "cantidad": 5}]}).json()
         assert bulto["acciones_permitidas"] == ["precintar"]
+
+    def test_detalle_informa_lo_solicitado_para_ver_envios_parciales(self, cliente):
+        orden = cliente.post("/api/ordenes", json={"numero": "O-1", "necesidades": [
+            {"destino_codigo": "L01", "producto_codigo": "P001", "cantidad": 10}]}).json()
+        bulto = cliente.post("/api/bultos", json={
+            "codigo": "B-1", "orden_numero": "O-1", "destino_codigo": "L01", "remito_numero": "R-1",
+            "lineas": [{"detalle_id": orden["detalles"][0]["id"], "cantidad": 6}]}).json()
+        assert (bulto["detalles"][0]["cantidad"], bulto["detalles"][0]["solicitado"]) == (6, 10)
 
     def test_transicion_invalida_409(self, cliente):  # RN-15
         abastecer(cliente)

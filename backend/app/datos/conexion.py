@@ -39,7 +39,17 @@ class ConexionSQLite:
         return self._en_transaccion
 
     def crear_esquema(self) -> None:
+        self._migrar_nombres_viejos()
         self._conexion.executescript(RUTA_ESQUEMA.read_text(encoding="utf-8"))
+
+    def _migrar_nombres_viejos(self) -> None:
+        """Bases creadas antes del renombre: `ordenes` pasó a llamarse `ordenes_reposicion`.
+
+        SQLite actualiza solo las claves foráneas que apuntan a la tabla renombrada.
+        """
+        tablas = {fila["name"] for fila in self.consultar("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "ordenes" in tablas and "ordenes_reposicion" not in tablas:
+            self._conexion.execute("ALTER TABLE ordenes RENAME TO ordenes_reposicion")
 
     @contextmanager
     def transaccion(self):

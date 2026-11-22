@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS ingresos_stock (
 -- Reposición y bultos
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE IF NOT EXISTS ordenes (
+CREATE TABLE IF NOT EXISTS ordenes_reposicion (
     numero         TEXT PRIMARY KEY,
     fecha          TEXT NOT NULL,
     origen_codigo  TEXT NOT NULL REFERENCES sucursales (codigo),
@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS ordenes (
 
 CREATE TABLE IF NOT EXISTS detalles_reposicion (
     id               INTEGER PRIMARY KEY AUTOINCREMENT,
-    orden_numero     TEXT NOT NULL REFERENCES ordenes (numero),
+    orden_numero     TEXT NOT NULL REFERENCES ordenes_reposicion (numero),
     destino_codigo   TEXT NOT NULL REFERENCES sucursales (codigo),
     producto_codigo  TEXT NOT NULL REFERENCES productos (codigo),
     cantidad         INTEGER NOT NULL CHECK (cantidad > 0),
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS detalles_reposicion (
 
 CREATE TABLE IF NOT EXISTS bultos (
     codigo            TEXT PRIMARY KEY,
-    orden_numero      TEXT NOT NULL REFERENCES ordenes (numero),
+    orden_numero      TEXT NOT NULL REFERENCES ordenes_reposicion (numero),
     destino_codigo    TEXT NOT NULL REFERENCES sucursales (codigo),
     remito_numero     TEXT NOT NULL UNIQUE,
     precinto_numero   TEXT UNIQUE,

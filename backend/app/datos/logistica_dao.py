@@ -27,15 +27,15 @@ class LogisticaDAO:
 
     def guardar_orden(self, orden: OrdenReposicion) -> None:
         """Inserta la orden o actualiza su cierre. Asigna el id a los detalles nuevos."""
-        existe = self._conexion.consultar_uno("SELECT 1 FROM ordenes WHERE numero = ?", (orden.numero,))
+        existe = self._conexion.consultar_uno("SELECT 1 FROM ordenes_reposicion WHERE numero = ?", (orden.numero,))
         if existe is None:
             self._conexion.ejecutar(
-                "INSERT INTO ordenes (numero, fecha, origen_codigo, cerrada) VALUES (?, ?, ?, ?)",
+                "INSERT INTO ordenes_reposicion (numero, fecha, origen_codigo, cerrada) VALUES (?, ?, ?, ?)",
                 (orden.numero, fecha_a_texto(orden.fecha), orden.origen.codigo, int(orden.cerrada)),
             )
         else:
             self._conexion.ejecutar(
-                "UPDATE ordenes SET cerrada = ? WHERE numero = ?", (int(orden.cerrada), orden.numero)
+                "UPDATE ordenes_reposicion SET cerrada = ? WHERE numero = ?", (int(orden.cerrada), orden.numero)
             )
         for detalle in orden.detalles:
             if detalle.id is None:
@@ -52,7 +52,7 @@ class LogisticaDAO:
 
     def buscar_orden(self, numero: str, productos: dict[str, Producto],
                      sucursales: dict[str, Sucursal]) -> OrdenReposicion | None:
-        fila = self._conexion.consultar_uno("SELECT * FROM ordenes WHERE numero = ?", (numero,))
+        fila = self._conexion.consultar_uno("SELECT * FROM ordenes_reposicion WHERE numero = ?", (numero,))
         if fila is None:
             return None
         detalles = [
@@ -96,7 +96,7 @@ class LogisticaDAO:
                       COALESCE(SUM(d.cantidad), 0) AS solicitado,
                       COALESCE(SUM((SELECT SUM(db.cantidad) FROM detalles_bulto db
                                     WHERE db.detalle_reposicion_id = d.id)), 0) AS asignado
-               FROM ordenes o
+               FROM ordenes_reposicion o
                LEFT JOIN detalles_reposicion d ON d.orden_numero = o.numero
                GROUP BY o.numero
                ORDER BY o.fecha DESC, o.numero DESC"""

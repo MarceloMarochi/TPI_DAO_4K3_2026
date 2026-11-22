@@ -86,7 +86,8 @@ export function Campo({ etiqueta, htmlFor, ayuda, children, className }: {
   className?: string
 }) {
   return (
-    <div className={cn("grid gap-1.5", className)}>
+    // content-start: dentro de una grilla de formulario, las etiquetas quedan alineadas aunque un campo tenga ayuda.
+    <div className={cn("grid content-start gap-1.5", className)}>
       <Label htmlFor={htmlFor}>{etiqueta}</Label>
       {children}
       {ayuda && <p className="text-xs text-muted-foreground">{ayuda}</p>}

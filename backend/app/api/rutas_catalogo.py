@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Depends, Query, Request, UploadFile
 
 from app.api import esquemas as e
 from app.api.adaptador import RESPUESTAS_ERROR, obtener_sistema
@@ -88,6 +88,12 @@ def configurar_minimo(sucursal: str, producto: str, datos: e.MinimoEntrada,
 def registrar_ingreso(datos: e.IngresoEntrada, sistema: SistemaVentas = Depends(obtener_sistema)):
     """Entrada de compra al CD. La fecha la asigna el servidor."""
     return sistema.registrar_ingreso(datos.model_dump())
+
+
+@router.get("/ingresos", response_model=list[e.Ingreso])
+def listar_ingresos(limite: int = Query(50, ge=1, le=500), sistema: SistemaVentas = Depends(obtener_sistema)):
+    """Últimos ingresos al CD, del más reciente al más antiguo."""
+    return sistema.listar_ingresos(limite)
 
 
 @router.get("/ingresos/{numero}", response_model=e.Ingreso)

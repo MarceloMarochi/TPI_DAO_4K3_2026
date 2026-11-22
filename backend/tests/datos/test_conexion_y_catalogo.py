@@ -5,6 +5,7 @@ from decimal import Decimal
 
 import pytest
 
+from app.datos.conexion import ConexionSQLite
 from app.datos.formatos import a_centavos, desde_centavos, fecha_a_texto, texto_a_fecha
 from app.negocio.comunes import ahora
 from app.negocio.modelos import IngresoStock, Producto, Sucursal
@@ -12,7 +13,7 @@ from app.negocio.modelos import IngresoStock, Producto, Sucursal
 from .conftest import recargar
 
 TABLAS = {
-    "proveedores", "productos", "sucursales", "existencias", "ingresos_stock", "ordenes",
+    "proveedores", "productos", "sucursales", "existencias", "ingresos_stock", "ordenes_reposicion",
     "detalles_reposicion", "bultos", "detalles_bulto", "historial_estados", "ventas",
     "detalles_venta", "devoluciones",
 }
@@ -25,6 +26,20 @@ class TestConexion:
 
     def test_esquema_idempotente(self, conexion):
         conexion.crear_esquema()
+
+    def test_migra_la_tabla_ordenes_de_bases_anteriores(self, tmp_path):
+        ruta = tmp_path / "vieja.sqlite3"
+        with ConexionSQLite(ruta) as vieja:
+            vieja.crear_esquema()
+            vieja.ejecutar("ALTER TABLE ordenes_reposicion RENAME TO ordenes")
+            vieja.ejecutar("INSERT INTO sucursales (codigo, nombre, es_cd) VALUES ('CD', 'Centro', 1)")
+            vieja.ejecutar("INSERT INTO ordenes (numero, fecha, origen_codigo) VALUES ('O-1', '2026-01-01', 'CD')")
+        with ConexionSQLite(ruta) as migrada:
+            migrada.crear_esquema()
+            tablas = {f["name"] for f in migrada.consultar("SELECT name FROM sqlite_master WHERE type = 'table'")}
+            assert "ordenes" not in tablas
+            assert migrada.consultar_uno("SELECT numero FROM ordenes_reposicion")["numero"] == "O-1"
+            assert migrada.consultar_uno("PRAGMA foreign_key_check") is None
 
     def test_commit(self, conexion, catalogo_dao):
         with conexion.transaccion():

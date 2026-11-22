@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAccion, useConsulta } from "@/hooks/useConsulta"
 import { api } from "@/lib/api"
-import { generarNumero, importe } from "@/lib/formato"
+import { fechaHora, generarNumero, importe } from "@/lib/formato"
 import type { Ingreso, Producto, ResultadoImportacion, TipoImportacion } from "@/lib/tipos"
 
 const TODOS: Opcion = { valor: "", etiqueta: "Todos" }
@@ -41,7 +41,7 @@ export function PanelExistencias({ opcionesSucursales, opcionesProductos }: {
   }
 
   return (
-    <Seccion titulo="Existencias" descripcion="Disponible habilitado para la venta. Lo que está en tránsito o sin verificar se ve en el reporte de existencias.">
+    <Seccion titulo="Existencias" descripcion="Disponible: unidades que se pueden vender o enviar ya. Mínimo: el nivel que se quiere mantener (es lo único editable). Faltante: lo que falta para llegar al mínimo; filtrando «Sólo debajo del mínimo» se ve qué reponer en la próxima orden. Lo que está en tránsito, sin verificar o rechazado aparece en el reporte R3.">
       <div className="mb-4 grid gap-3 sm:grid-cols-3">
         <Campo etiqueta="Establecimiento"><Seleccion valor={sucursal} onCambio={setSucursal} opciones={[TODOS, ...opcionesSucursales]} /></Campo>
         <Campo etiqueta="Producto"><Seleccion valor={producto} onCambio={setProducto} opciones={[TODOS, ...opcionesProductos]} /></Campo>
@@ -156,6 +156,43 @@ export function FormularioIngreso({ productos, opcionesProductos, opcionesProvee
   )
 }
 
+/** Últimos ingresos al CD: las entradas de mercadería. Las salidas son los bultos (Logística). */
+export function ListaIngresos({ nombreProducto }: { nombreProducto: (codigo: string) => string }) {
+  const { datos, cargando, error } = useConsulta(() => api.ingresos(20), [])
+  return (
+    <Seccion titulo="Últimos ingresos al CD" descripcion="Los 20 más recientes. Las salidas del CD son los bultos preparados (Logística).">
+      <EstadoConsulta cargando={cargando} error={error} vacio={(datos ?? []).length === 0} mensajeVacio="Todavía no hay ingresos.">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Número</TableHead>
+              <TableHead>Fecha</TableHead>
+              <TableHead>Producto</TableHead>
+              <TableHead>Proveedor</TableHead>
+              <TableHead className={num}>Cantidad</TableHead>
+              <TableHead className={num}>Costo unit.</TableHead>
+              <TableHead className={num}>Importe</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {(datos ?? []).map((i) => (
+              <TableRow key={i.numero}>
+                <TableCell className="font-medium">{i.numero}</TableCell>
+                <TableCell>{fechaHora(i.fecha)}</TableCell>
+                <TableCell>{i.producto_codigo} · {nombreProducto(i.producto_codigo)}</TableCell>
+                <TableCell>{i.proveedor_codigo}</TableCell>
+                <TableCell className={num}>{i.cantidad}</TableCell>
+                <TableCell className={num}>{importe(i.costo_unitario)}</TableCell>
+                <TableCell className={num}>{importe(i.importe)}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </EstadoConsulta>
+    </Seccion>
+  )
+}
+
 const TIPOS_IMPORTACION: { valor: TipoImportacion; etiqueta: string; columnas: string }[] = [
   { valor: "proveedores", etiqueta: "Proveedores", columnas: "codigo, nombre" },
   { valor: "sucursales", etiqueta: "Establecimientos", columnas: "codigo, nombre, es_cd" },
@@ -192,7 +229,7 @@ export function ImportarCSV({ alImportar }: { alImportar: () => void }) {
         <Campo etiqueta="Archivo" htmlFor="csv-archivo">
           <Input id="csv-archivo" type="file" accept=".csv,text/csv" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} />
         </Campo>
-        <div className="flex items-start pt-6">
+        <div className="flex items-start sm:pt-5">
           <Button type="submit" disabled={!archivo || pendiente}>
             <UploadIcon data-icon="inline-start" /> {pendiente ? "Importando…" : "Importar"}
           </Button>

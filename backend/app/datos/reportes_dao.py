@@ -131,7 +131,7 @@ class ReportesDAO:
             WITH contenido AS (
                 SELECT b.estado, b.destino_codigo, o.origen_codigo, dr.producto_codigo, db.cantidad
                 FROM bultos b
-                JOIN ordenes o ON o.numero = b.orden_numero
+                JOIN ordenes_reposicion o ON o.numero = b.orden_numero
                 JOIN detalles_bulto db ON db.bulto_codigo = b.codigo
                 JOIN detalles_reposicion dr ON dr.id = db.detalle_reposicion_id
                 WHERE b.estado <> 'VERIFICADO'

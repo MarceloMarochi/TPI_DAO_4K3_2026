@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { PackagePlusIcon, PlusIcon, Trash2Icon } from "lucide-react"
+import { PackagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Campo, EstadoConsulta, MensajeError, Seccion, Seleccion, num, type Opcion } from "@/components/comunes"
@@ -81,6 +81,7 @@ export function PanelOrdenes({ opcionesLocales, opcionesProductos, nombreSucursa
           {detalle.datos && (
             <PrepararBulto key={detalle.datos.numero + detalle.datos.detalles.map((d) => d.asignado).join()}
               orden={detalle.datos} nombreSucursal={nombreSucursal}
+              alCerrar={() => setSeleccionada(null)}
               alPreparar={(bulto) => { refrescar(); alPrepararBulto(bulto) }} />
           )}
         </EstadoConsulta>
@@ -157,9 +158,10 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
 }
 
 /** Arma un bulto para UN destino con líneas de la orden. Al guardarlo se descuenta el CD y el contenido queda fijo. */
-function PrepararBulto({ orden, nombreSucursal, alPreparar }: {
+function PrepararBulto({ orden, nombreSucursal, alCerrar, alPreparar }: {
   orden: Orden
   nombreSucursal: (codigo: string) => string
+  alCerrar: () => void
   alPreparar: (bulto: Bulto) => void
 }) {
   const destinos = useMemo(
@@ -170,7 +172,7 @@ function PrepararBulto({ orden, nombreSucursal, alPreparar }: {
   const [remito, setRemito] = useState(() => generarNumero("R"))
   const [cantidades, setCantidades] = useState<Record<number, string>>(
     () => Object.fromEntries(orden.detalles.map((d) => [d.id, String(d.pendiente)])))
-  const { ejecutar, pendiente, error } = useAccion()
+  const { ejecutar, pendiente, error, limpiarError } = useAccion()
 
   const lineasDestino = orden.detalles.filter((d) => d.destino_codigo === destino)
 
@@ -186,7 +188,8 @@ function PrepararBulto({ orden, nombreSucursal, alPreparar }: {
   }
 
   return (
-    <Seccion titulo={`Orden ${orden.numero}`} descripcion={orden.cerrada ? "En preparación: las necesidades ya no se modifican." : "Abierta: todavía no tiene bultos."}>
+    <Seccion titulo={`Orden ${orden.numero}`} descripcion={orden.cerrada ? "En preparación: las necesidades ya no se modifican." : "Abierta: todavía no tiene bultos."}
+      acciones={<Button variant="ghost" size="icon-sm" aria-label="Cerrar la orden" onClick={alCerrar}><XIcon /></Button>}>
       <Table className="mb-4">
         <TableHeader>
           <TableRow>
@@ -217,7 +220,7 @@ function PrepararBulto({ orden, nombreSucursal, alPreparar }: {
           <h3 className="flex items-center gap-2 font-medium"><PackagePlusIcon className="size-4" /> Preparar bulto</h3>
           <div className="grid gap-3 sm:grid-cols-3">
             <Campo etiqueta="Destino">
-              <Seleccion valor={destino} onCambio={setDestino} opciones={destinos.map((d) => ({ valor: d, etiqueta: nombreSucursal(d) }))} />
+              <Seleccion valor={destino} onCambio={(v) => { setDestino(v); limpiarError() }} opciones={destinos.map((d) => ({ valor: d, etiqueta: nombreSucursal(d) }))} />
             </Campo>
             <Campo etiqueta="Código de bulto" htmlFor="bulto-codigo"><Input id="bulto-codigo" value={codigo} onChange={(e) => setCodigo(e.target.value)} /></Campo>
             <Campo etiqueta="Número de remito" htmlFor="bulto-remito"><Input id="bulto-remito" value={remito} onChange={(e) => setRemito(e.target.value)} /></Campo>
@@ -226,7 +229,7 @@ function PrepararBulto({ orden, nombreSucursal, alPreparar }: {
             <div key={d.id} className="flex items-center justify-between gap-3 text-sm">
               <span>{d.producto_codigo} · {d.producto_nombre} <span className="text-muted-foreground">(pendiente {d.pendiente})</span></span>
               <Input className="h-7 w-24" inputMode="numeric" aria-label={`Cantidad de ${d.producto_codigo}`}
-                value={cantidades[d.id] ?? ""} onChange={(e) => setCantidades({ ...cantidades, [d.id]: e.target.value })} />
+                value={cantidades[d.id] ?? ""} onChange={(e) => { setCantidades({ ...cantidades, [d.id]: e.target.value }); limpiarError() }} />
             </div>
           ))}
           <Button type="submit" disabled={pendiente || !destino}>{pendiente ? "Preparando…" : "Guardar bulto preparado"}</Button>

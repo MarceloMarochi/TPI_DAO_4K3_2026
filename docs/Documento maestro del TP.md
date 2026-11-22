@@ -361,7 +361,7 @@ Sirven para escribir un test por regla.
 
 ## 10. Persistencia
 
-**Tablas (13):** `proveedores`, `productos`, `sucursales`, `existencias`, `ingresos_stock`, `ordenes`, `detalles_reposicion`, `bultos`, `detalles_bulto`, `historial_estados`, `ventas`, `detalles_venta`, `devoluciones`.
+**Tablas (13):** `proveedores`, `productos`, `sucursales`, `existencias`, `ingresos_stock`, `ordenes_reposicion`, `detalles_reposicion`, `bultos`, `detalles_bulto`, `historial_estados`, `ventas`, `detalles_venta`, `devoluciones`.
 
 - Claves foráneas activas (`PRAGMA foreign_keys = ON`).
 - `UNIQUE` en códigos y números de documento; `UNIQUE(producto, sucursal)` en existencias.
@@ -418,7 +418,7 @@ El contrato vivo está en `http://localhost:8000/docs` (Swagger) y `/openapi.jso
 
 | Área | Operaciones |
 | --- | --- |
-| Catálogos y stock | `GET/POST /api/proveedores`, `PUT /api/proveedores/{codigo}` · lo mismo para `/api/sucursales` y `/api/productos` · `GET /api/existencias?sucursal=&producto=` · `PUT /api/existencias/{sucursal}/{producto}/minimo` · `POST /api/ingresos`, `GET /api/ingresos/{numero}` · `POST /api/importaciones/{tipo}` (multipart, campo `archivo`) |
+| Catálogos y stock | `GET/POST /api/proveedores`, `PUT /api/proveedores/{codigo}` · lo mismo para `/api/sucursales` y `/api/productos` · `GET /api/existencias?sucursal=&producto=` · `PUT /api/existencias/{sucursal}/{producto}/minimo` · `POST /api/ingresos`, `GET /api/ingresos?limite=`, `GET /api/ingresos/{numero}` · `POST /api/importaciones/{tipo}` (multipart, campo `archivo`) |
 | Logística | `GET /api/ordenes?pendientes=`, `POST /api/ordenes`, `GET /api/ordenes/{numero}` · `GET /api/bultos?estado=&destino=`, `POST /api/bultos`, `GET /api/bultos/{codigo}` · `POST /api/bultos/{codigo}/precintar`, `/despachar`, `/recibir`, `/verificar` |
 | Caja | `GET /api/medios-pago` · `POST /api/ventas/cotizacion` · `POST /api/ventas`, `GET /api/ventas?local=`, `GET /api/ventas/{numero}` · `POST /api/devoluciones`, `GET /api/devoluciones/{numero}` |
 | General | `GET /api/salud` |
@@ -438,7 +438,7 @@ Decisiones:
 | --- | --- |
 | **Catálogos y stock** | Grilla reutilizable para productos, sucursales y proveedores (alta, edición, búsqueda; sin bajas). Panel de existencias (sólo el mínimo es editable). Formulario de ingreso al CD. Importación CSV con errores por fila |
 | **Logística** | Alta y consulta de órdenes con pendientes. Preparación de bulto (orden + destino + líneas, código y remito). Tabla de bultos filtrable por estado y destino; detalle con contenido e historial. Botones Precintar, Despachar, Recibir y Verificar según las acciones permitidas |
-| **Caja** | Local, buscador de productos, cantidades, medio de pago; cotización del servidor; confirmación; descarga del comprobante PDF. Devoluciones: buscar venta, elegir línea, cantidad, aptitud y motivo |
+| **Caja** | Local de caja (selector dentro de la pestaña), buscador de productos, cantidades, medio de pago; cotización del servidor; confirmación; descarga del comprobante PDF. Devoluciones: buscar venta, elegir línea, cantidad, aptitud y motivo |
 | **Reportes** | Selector R1 a R4, filtros, tabla con totales y descarga PDF con los mismos filtros |
 
 Comportamiento común: estados de carga, vacío, éxito y error; botón deshabilitado mientras hay una solicitud pendiente; cambiar de local con un borrador pide confirmación.
@@ -627,3 +627,26 @@ obligatorio están descritos en RN-22, RN-26 y la sección de cotización.
 Esto reorganiza y corrige el alcance entregado: no añade compras con recepción separada,
 libros de inventario o caja, transferencia ni devoluciones de varias líneas. El esquema
 SQLite permanece igual y no se reescriben operaciones históricas.
+
+## 17. Revisión de la interfaz del 22/11/2026
+
+Cambios surgidos de probar el sistema desde la UI. No modifican reglas de negocio ni el modelo de clases.
+
+| Cambio | Dónde |
+| --- | --- |
+| El alta de proveedor, producto o establecimiento **propone el siguiente código de la serie** (`P011`, `PRV04`, `L04`), editable. El servidor sigue validando duplicados (409). Los documentos ya se numeraban solos (P-05) | `lib/codigos.ts`, `GrillaCatalogo.tsx` |
+| La categoría sigue siendo texto (sin clase `Categoria`), pero el campo **sugiere las categorías existentes** para no crear variantes como "Bebida" y "Bebidas" | `GrillaCatalogo.tsx` |
+| Existencias y mínimos explica qué es disponible, mínimo y faltante, y para qué sirve el filtro "Sólo debajo del mínimo" | `PanelesStock.tsx` |
+| **Listado de los últimos ingresos al CD** debajo del formulario de ingreso. Endpoint nuevo `GET /api/ingresos?limite=` (por defecto 50, máximo 500), del más reciente al más antiguo | `CatalogoDAO.listar_ingresos`, `ServicioCatalogo.listar_ingresos` |
+| El detalle del bulto muestra cada línea **respecto de la orden** ("6 de 10 solicitadas") y la marca como *Envío parcial* o *Línea completa*. La respuesta del bulto agrega `solicitado` en cada detalle | `representaciones._bulto_a_dict`, `PanelBultos.tsx` |
+| Los paneles de orden y de bulto tienen una ✕ para cerrarlos; el error de preparación se limpia al corregir los datos | `PanelOrdenes.tsx`, `PanelBultos.tsx` |
+| Precintar **propone un número de precinto** con la convención del sistema (`PR-…`); si el sello trae otro número impreso, se reemplaza | `PanelBultos.tsx` |
+| El selector del **local de caja** pasó del encabezado a la pestaña Caja, que es la única que lo usa | `vistas/caja/SelectorLocal.tsx` |
+| Campos de formulario alineados aunque uno tenga texto de ayuda (`Campo` con `content-start`) | `components/comunes.tsx` |
+| La tabla `ordenes` se renombró **`ordenes_reposicion`**, como `detalles_reposicion`. `ConexionSQLite.crear_esquema` renombra la tabla en bases creadas antes del cambio, y SQLite actualiza las claves foráneas que la referencian | `schema.sql`, `conexion.py` |
+
+**Decisiones que se mantienen** (se analizaron y se descartaron):
+
+- **Códigos como clave primaria.** Son claves naturales del negocio (código de producto, número de remito o de precinto). Un `id` autonumérico no evitaría duplicados, porque el código igual tendría que ser `UNIQUE`. Donde no hay código de negocio ya se usa id autonumérico (`detalles_reposicion`, `detalles_venta`). El problema de que el usuario invente códigos se resolvió proponiéndolos.
+- **`created_at` en todas las tablas.** Todos los movimientos ya tienen fecha (ingresos, órdenes, ventas, devoluciones y cada transición del bulto en `historial_estados`). En los catálogos aportaría poco.
+

@@ -4,7 +4,7 @@ import { EstadoConsulta } from "@/components/comunes"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useCatalogos } from "@/hooks/useCatalogos"
 import { CATALOGOS, GrillaCatalogo } from "./GrillaCatalogo"
-import { FormularioIngreso, ImportarCSV, PanelExistencias } from "./PanelesStock"
+import { FormularioIngreso, ImportarCSV, ListaIngresos, PanelExistencias } from "./PanelesStock"
 
 export function VistaCatalogos() {
   const catalogos = useCatalogos()
@@ -33,9 +33,11 @@ export function VistaCatalogos() {
         <TabsContent value="existencias">
           <PanelExistencias key={version} opcionesSucursales={catalogos.opcionesSucursales} opcionesProductos={catalogos.opcionesProductos} />
         </TabsContent>
-        <TabsContent value="ingresos">
+        <TabsContent value="ingresos" className="space-y-6">
           <FormularioIngreso productos={catalogos.productos} opcionesProductos={catalogos.opcionesProductos}
             opcionesProveedores={catalogos.opcionesProveedores} alRegistrar={actualizar} />
+          <ListaIngresos key={version}
+            nombreProducto={(codigo) => catalogos.productos.find((p) => p.codigo === codigo)?.nombre ?? codigo} />
         </TabsContent>
         <TabsContent value="importar">
           <ImportarCSV alImportar={actualizar} />

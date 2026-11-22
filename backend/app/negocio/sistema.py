@@ -42,6 +42,9 @@ class SistemaVentas:
     def consultar_ingreso(self, numero: str) -> dict:
         return self._catalogo.consultar_ingreso(numero)
 
+    def listar_ingresos(self, limite: int = 50) -> list[dict]:
+        return self._catalogo.listar_ingresos(limite)
+
     def crear_orden(self, datos: dict) -> dict:
         return self._logistica.crear_orden(datos)
 

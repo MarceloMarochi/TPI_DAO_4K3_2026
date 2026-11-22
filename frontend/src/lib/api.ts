@@ -62,6 +62,7 @@ async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown, para
     }
     throw new ErrorApi(respuesta.status, datos.codigo ?? "ERROR", datos.mensaje ?? `Error ${respuesta.status} del servidor`, datos.detalles ?? [])
   }
+  if (respuesta.status === 204) return undefined as T // sin contenido (por ejemplo, una baja)
   try {
     return await respuesta.json() as T
   } catch {
@@ -73,6 +74,7 @@ async function solicitar<T>(metodo: string, ruta: string, cuerpo?: unknown, para
 const get = <T>(ruta: string, parametros?: Parametros) => solicitar<T>("GET", ruta, undefined, parametros)
 const post = <T>(ruta: string, cuerpo?: unknown) => solicitar<T>("POST", ruta, cuerpo ?? {})
 const put = <T>(ruta: string, cuerpo: unknown) => solicitar<T>("PUT", ruta, cuerpo)
+const borrar = (ruta: string) => solicitar<void>("DELETE", ruta)
 
 /** URL para descargar un PDF (el navegador la abre directamente). */
 export const urlPdf = (ruta: string, parametros?: Parametros) => armarRuta(ruta, parametros)
@@ -83,6 +85,9 @@ export const api = {
   sucursales: () => get<Sucursal[]>("/sucursales"),
   productos: () => get<Producto[]>("/productos"),
   altaCatalogo: <T>(tipo: "proveedores" | "sucursales" | "productos", datos: unknown) => post<T>(`/${tipo}`, datos),
+  /** Sólo se aceptan bajas de registros sin historia; si tiene movimientos, el servidor responde 409 con el motivo. */
+  eliminarCatalogo: (tipo: "proveedores" | "sucursales" | "productos", codigo: string) =>
+    borrar(`/${tipo}/${encodeURIComponent(codigo)}`),
   editarCatalogo: <T>(tipo: "proveedores" | "sucursales" | "productos", codigo: string, datos: unknown) =>
     put<T>(`/${tipo}/${encodeURIComponent(codigo)}`, datos),
   existencias: (filtros: { sucursal?: string; producto?: string }) => get<Existencia[]>("/existencias", filtros),

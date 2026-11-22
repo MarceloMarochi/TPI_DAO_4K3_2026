@@ -50,13 +50,19 @@ class ServicioCatalogo(ServicioBase):
             if es_cd and any(s.es_cd for s in self._sucursales.values()):
                 raise Conflicto("Ya existe un Centro de Distribución; sólo puede haber uno")
             sucursal = Sucursal(codigo, datos.get("nombre"), es_cd)
+            nuevo = True
         else:
+            nuevo = False
             sucursal = existente
             if "es_cd" in datos and _a_bool(datos["es_cd"], "es_cd") != sucursal.es_cd:
                 raise Conflicto("No se puede cambiar si un establecimiento es el CD")
             sucursal.nombre = datos.get("nombre")
         self._catalogo.guardar_sucursal(sucursal)
         self._sucursales[codigo] = sucursal
+        if nuevo:
+            # Un establecimiento nuevo arranca con existencia en 0 de cada producto: así aparece
+            # en Existencias y se le puede fijar el mínimo antes del primer movimiento.
+            self._crear_existencias_vacias([sucursal], list(self._productos.values()))
         return _sucursal_a_dict(sucursal)
 
     def _guardar_producto(self, datos, alta) -> dict:
@@ -77,7 +83,56 @@ class ServicioCatalogo(ServicioBase):
                 producto.costo_referencia = datos["costo_referencia"]
         self._catalogo.guardar_producto(producto)
         self._productos[codigo] = producto
+        if alta:
+            # Un producto nuevo arranca con existencia en 0 en cada establecimiento (ver arriba).
+            self._crear_existencias_vacias(list(self._sucursales.values()), [producto])
         return _producto_a_dict(producto)
+
+    def _crear_existencias_vacias(self, sucursales: list[Sucursal], productos: list[Producto]) -> None:
+        for sucursal in sucursales:
+            for producto in productos:
+                sucursal.existencia_para(producto)
+        self._catalogo.crear_existencias_vacias([(s.codigo, p.codigo) for s in sucursales for p in productos])
+
+    # --- Bajas ---
+
+    def eliminar_catalogo(self, tipo: str, codigo: str) -> None:
+        """Elimina un proveedor, producto o local que nunca se usó.
+
+        Lo que ya tiene movimientos (ingresos, órdenes, bultos, ventas o stock) no se borra:
+        es historia y la consigna exige trazabilidad inmutable. El CD no se elimina nunca.
+        """
+        with self._escritura():
+            if tipo == "proveedor":
+                self._verificar_alta_o_edicion(codigo in self._proveedores, False, f"el proveedor {codigo}")
+                self._exigir_sin_historia(f"el proveedor {codigo}", self._catalogo.referencias_de_proveedor(codigo))
+                self._catalogo.eliminar_proveedor(codigo)
+                del self._proveedores[codigo]
+            elif tipo == "producto":
+                self._verificar_alta_o_edicion(codigo in self._productos, False, f"el producto {codigo}")
+                self._exigir_sin_historia(f"el producto {codigo}", self._catalogo.referencias_de_producto(codigo))
+                self._catalogo.eliminar_producto(codigo)
+                del self._productos[codigo]
+            elif tipo == "sucursal":
+                sucursal = self._sucursales.get(codigo)
+                self._verificar_alta_o_edicion(sucursal is not None, False, f"el establecimiento {codigo}")
+                if sucursal.es_cd:
+                    raise Conflicto("El Centro de Distribución no se puede eliminar: el sistema necesita exactamente uno")
+                self._exigir_sin_historia(f"el establecimiento {codigo}", self._catalogo.referencias_de_sucursal(codigo))
+                self._catalogo.eliminar_sucursal(codigo)
+                del self._sucursales[codigo]
+            else:
+                raise ValueError(f"tipo: catálogo desconocido ({tipo}); opciones: {', '.join(TIPOS_CATALOGO)}")
+
+    @staticmethod
+    def _exigir_sin_historia(descripcion: str, referencias: dict[str, int]) -> None:
+        singular = {"productos": "producto", "ingresos": "ingreso", "líneas de orden": "línea de orden",
+                    "líneas de venta": "línea de venta", "unidades en stock": "unidad en stock",
+                    "bultos": "bulto", "ventas": "venta"}
+        usos = [f"{cantidad} {singular.get(nombre, nombre) if cantidad == 1 else nombre}"
+                for nombre, cantidad in referencias.items() if cantidad]
+        if usos:
+            raise Conflicto(f"No se puede eliminar {descripcion} porque tiene historia: {', '.join(usos)}")
 
     def configurar_minimo(self, sucursal_codigo: str, producto_codigo: str, minimo) -> dict:
         with self._escritura():

@@ -291,3 +291,70 @@ class TestContratoEstricto:
         r = cliente.post("/api/ventas", json=datos)
         assert r.status_code == 422
         assert r.json()["detalles"][0]["campo"] == "total_esperado"
+
+
+class TestExistenciasDeAltasNuevas:
+    def test_producto_nuevo_aparece_en_cero_en_todos_los_establecimientos(self, cliente):
+        cliente.post("/api/productos", json={
+            "codigo": "P011", "nombre": "Agua", "categoria": "Bebidas", "proveedor_codigo": "PRV01",
+            "precio": "900", "costo_referencia": "500"})
+        filas = cliente.get("/api/existencias", params={"producto": "P011"}).json()
+        assert sorted(f["sucursal_codigo"] for f in filas) == ["CD", "L01", "L02", "L03"]
+        assert all(f["disponible"] == 0 and f["minimo"] == 0 for f in filas)
+
+    def test_local_nuevo_aparece_en_cero_para_todos_los_productos(self, cliente):
+        cliente.post("/api/sucursales", json={"codigo": "L04", "nombre": "Nuevo", "es_cd": False})
+        filas = cliente.get("/api/existencias", params={"sucursal": "L04"}).json()
+        assert len(filas) == 10
+        assert cliente.put("/api/existencias/L04/P001/minimo", json={"minimo": 5}).json()["faltante"] == 5
+
+    def test_el_alta_no_pisa_existencias_previas(self, cliente):
+        cliente.post("/api/sucursales", json={"codigo": "L04", "nombre": "Nuevo", "es_cd": False})
+        cd = cliente.get("/api/existencias", params={"sucursal": "CD", "producto": "P001"}).json()[0]
+        assert (cd["disponible"], cd["minimo"]) == (200, 40)
+
+
+class TestBajas:
+    def test_proveedor_sin_uso_se_elimina_y_libera_el_codigo(self, cliente):
+        cliente.post("/api/proveedores", json={"codigo": "PRV09", "nombre": "Con error"})
+        assert cliente.delete("/api/proveedores/PRV09").status_code == 204
+        assert cliente.post("/api/proveedores", json={"codigo": "PRV09", "nombre": "Bien"}).status_code == 201
+
+    def test_proveedor_con_productos_no_se_elimina(self, cliente):
+        respuesta = cliente.delete("/api/proveedores/PRV01")
+        assert respuesta.status_code == 409
+        assert "4 productos" in respuesta.json()["mensaje"]
+
+    def test_producto_sin_uso_se_elimina_con_sus_existencias_en_cero(self, cliente):
+        cliente.post("/api/productos", json={
+            "codigo": "P011", "nombre": "Agua", "categoria": "Bebidas", "proveedor_codigo": "PRV01",
+            "precio": "900", "costo_referencia": "500"})
+        cliente.put("/api/existencias/L01/P011/minimo", json={"minimo": 5})
+        assert cliente.delete("/api/productos/P011").status_code == 204
+        assert cliente.get("/api/existencias", params={"producto": "P011"}).json() == []
+
+    def test_producto_con_ingresos_y_stock_no_se_elimina(self, cliente):
+        respuesta = cliente.delete("/api/productos/P001")
+        assert respuesta.status_code == 409
+        assert "1 ingreso," in respuesta.json()["mensaje"]
+        assert "200 unidades en stock" in respuesta.json()["mensaje"]
+
+    def test_local_con_bultos_no_se_elimina_y_su_historia_queda(self, cliente):
+        abastecer(cliente)
+        respuesta = cliente.delete("/api/sucursales/L01")
+        assert respuesta.status_code == 409
+        assert "1 bulto" in respuesta.json()["mensaje"]
+        assert len(cliente.get("/api/bultos/B-1").json()["historial"]) == 5
+
+    def test_local_sin_uso_se_elimina(self, cliente):
+        cliente.post("/api/sucursales", json={"codigo": "L04", "nombre": "Por error", "es_cd": False})
+        assert cliente.delete("/api/sucursales/L04").status_code == 204
+        assert "L04" not in [s["codigo"] for s in cliente.get("/api/sucursales").json()]
+
+    def test_el_cd_no_se_elimina(self, cliente):
+        respuesta = cliente.delete("/api/sucursales/CD")
+        assert respuesta.status_code == 409
+        assert "Centro de Distribución" in respuesta.json()["mensaje"]
+
+    def test_inexistente_404(self, cliente):
+        assert cliente.delete("/api/productos/NOPE").status_code == 404

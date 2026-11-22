@@ -1,6 +1,8 @@
 import { useState } from "react"
+import { XIcon } from "lucide-react"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { BadgeEstado, Campo, EstadoConsulta, MensajeError, Seccion, Seleccion, num, type Opcion } from "@/components/comunes"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
@@ -10,7 +12,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea"
 import { useAccion, useConsulta } from "@/hooks/useConsulta"
 import { api } from "@/lib/api"
-import { ETIQUETA_ACCION, ETIQUETA_ESTADO, fechaHora } from "@/lib/formato"
+import { ETIQUETA_ACCION, ETIQUETA_ESTADO, fechaHora, generarNumero } from "@/lib/formato"
 import type { AccionBulto, Bulto, EstadoBulto } from "@/lib/tipos"
 import { cn } from "@/lib/utils"
 
@@ -67,7 +69,7 @@ export function PanelBultos({ opcionesLocales, nombreSucursal, seleccionInicial 
       {seleccionado ? (
         <EstadoConsulta cargando={detalle.cargando && !detalle.datos} error={detalle.error}>
           {detalle.datos && (
-            <DetalleBulto bulto={detalle.datos} nombreSucursal={nombreSucursal}
+            <DetalleBulto bulto={detalle.datos} nombreSucursal={nombreSucursal} alCerrar={() => setSeleccionado(null)}
               alCambiar={() => { void detalle.recargar(); void lista.recargar() }} />
           )}
         </EstadoConsulta>
@@ -78,16 +80,20 @@ export function PanelBultos({ opcionesLocales, nombreSucursal, seleccionInicial 
   )
 }
 
-function DetalleBulto({ bulto, nombreSucursal, alCambiar }: {
+function DetalleBulto({ bulto, nombreSucursal, alCerrar, alCambiar }: {
   bulto: Bulto
   nombreSucursal: (codigo: string) => string
+  alCerrar: () => void
   alCambiar: () => void
 }) {
   const [accion, setAccion] = useState<AccionBulto | null>(null)
 
   return (
     <Seccion titulo={`Bulto ${bulto.codigo}`} descripcion={`Orden ${bulto.orden_numero} → ${nombreSucursal(bulto.destino_codigo)}`}
-      acciones={<BadgeEstado estado={bulto.estado} />}>
+      acciones={<>
+        <BadgeEstado estado={bulto.estado} />
+        <Button variant="ghost" size="icon-sm" aria-label="Cerrar el detalle" onClick={alCerrar}><XIcon /></Button>
+      </>}>
       <dl className="mb-4 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">Remito</dt><dd>{bulto.remito_numero} · {bulto.estado_remito.toLowerCase()}</dd>
         <dt className="text-muted-foreground">Precinto</dt>
@@ -95,9 +101,17 @@ function DetalleBulto({ bulto, nombreSucursal, alCambiar }: {
         <dt className="text-muted-foreground">Unidades</dt><dd>{bulto.unidades}</dd>
       </dl>
 
-      <h3 className="mb-1 text-sm font-medium">Contenido</h3>
-      <ul className="mb-4 text-sm">
-        {bulto.detalles.map((d) => <li key={d.detalle_id}>{d.cantidad} × {d.producto_codigo} · {d.producto_nombre}</li>)}
+      <h3 className="mb-1 text-sm font-medium">Contenido respecto de la orden</h3>
+      <ul className="mb-4 space-y-1 text-sm">
+        {bulto.detalles.map((d) => (
+          <li key={d.detalle_id} className="flex flex-wrap items-center gap-x-2">
+            <span>{d.cantidad} × {d.producto_codigo} · {d.producto_nombre}</span>
+            <span className="text-muted-foreground">({d.cantidad} de {d.solicitado} solicitadas)</span>
+            {d.cantidad < d.solicitado
+              ? <Badge variant="outline">Envío parcial</Badge>
+              : <Badge variant="secondary">Línea completa</Badge>}
+          </li>
+        ))}
       </ul>
 
       <h3 className="mb-2 text-sm font-medium">Historial (no se modifica)</h3>
@@ -144,7 +158,8 @@ function DialogoAccion({ bulto, accion, alCerrar, alCompletar }: {
   alCerrar: () => void
   alCompletar: () => void
 }) {
-  const [precinto, setPrecinto] = useState("")
+  // Se propone un número con la convención del sistema; si el sello trae otro impreso, se reemplaza.
+  const [precinto, setPrecinto] = useState(() => generarNumero("PR"))
   const [ok, setOk] = useState(true) // precinto intacto / control conforme
   const [motivo, setMotivo] = useState("")
   const { ejecutar, pendiente, error } = useAccion()
@@ -176,7 +191,7 @@ function DialogoAccion({ bulto, accion, alCerrar, alCompletar }: {
         </DialogHeader>
         <form id="form-accion" className="grid gap-3" onSubmit={(e) => { e.preventDefault(); void confirmar() }}>
           {accion === "precintar" && (
-            <Campo etiqueta="Número de precinto" htmlFor="precinto"><Input id="precinto" autoFocus value={precinto} onChange={(e) => setPrecinto(e.target.value)} /></Campo>
+            <Campo etiqueta="Número de precinto" htmlFor="precinto" ayuda="Propuesto por el sistema. Si el precinto trae otro número impreso, reemplazalo."><Input id="precinto" autoFocus value={precinto} onChange={(e) => setPrecinto(e.target.value)} /></Campo>
           )}
           {(accion === "recibir" || accion === "verificar") && (
             <>

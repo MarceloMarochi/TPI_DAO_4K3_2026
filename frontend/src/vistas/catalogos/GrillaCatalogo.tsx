@@ -10,10 +10,11 @@ import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { useAccion, useConsulta } from "@/hooks/useConsulta"
 import { api } from "@/lib/api"
+import { siguienteCodigo, valoresDistintos } from "@/lib/codigos"
 import { importe } from "@/lib/formato"
 import type { Proveedor } from "@/lib/tipos"
 
-type TipoCampo = "texto" | "importe" | "si_no" | "proveedor"
+type TipoCampo = "texto" | "importe" | "si_no" | "proveedor" | "categoria"
 type Fila = Record<string, string | boolean>
 
 interface DefinicionCampo {
@@ -27,6 +28,8 @@ export interface ConfiguracionCatalogo {
   tipo: "productos" | "sucursales" | "proveedores"
   titulo: string
   singular: string
+  /** Serie de códigos para proponer el siguiente en el alta (P011, PRV04, L04). */
+  serie: { prefijo: string; ancho: number }
   campos: DefinicionCampo[]
   columnas: DefinicionCampo[]
 }
@@ -36,10 +39,11 @@ export const CATALOGOS: ConfiguracionCatalogo[] = [
     tipo: "productos",
     titulo: "Productos",
     singular: "producto",
+    serie: { prefijo: "P", ancho: 3 },
     campos: [
       { clave: "codigo", etiqueta: "Código", tipo: "texto", soloAlta: true },
       { clave: "nombre", etiqueta: "Nombre", tipo: "texto" },
-      { clave: "categoria", etiqueta: "Categoría", tipo: "texto" },
+      { clave: "categoria", etiqueta: "Categoría", tipo: "categoria" },
       { clave: "proveedor_codigo", etiqueta: "Proveedor principal", tipo: "proveedor" },
       { clave: "precio", etiqueta: "Precio de venta", tipo: "importe" },
       { clave: "costo_referencia", etiqueta: "Costo de referencia", tipo: "importe" },
@@ -57,6 +61,7 @@ export const CATALOGOS: ConfiguracionCatalogo[] = [
     tipo: "sucursales",
     titulo: "Establecimientos",
     singular: "establecimiento",
+    serie: { prefijo: "L", ancho: 2 },
     campos: [
       { clave: "codigo", etiqueta: "Código", tipo: "texto", soloAlta: true },
       { clave: "nombre", etiqueta: "Nombre", tipo: "texto" },
@@ -72,6 +77,7 @@ export const CATALOGOS: ConfiguracionCatalogo[] = [
     tipo: "proveedores",
     titulo: "Proveedores",
     singular: "proveedor",
+    serie: { prefijo: "PRV", ancho: 2 },
     campos: [
       { clave: "codigo", etiqueta: "Código", tipo: "texto", soloAlta: true },
       { clave: "nombre", etiqueta: "Nombre", tipo: "texto" },
@@ -154,6 +160,7 @@ export function GrillaCatalogo({ config, proveedores, alCambiar }: {
         <FormularioCatalogo
           config={config}
           fila={edicion.fila}
+          existentes={datos ?? []}
           proveedores={proveedores}
           alCerrar={() => setEdicion(null)}
           alGuardar={() => {
@@ -167,16 +174,26 @@ export function GrillaCatalogo({ config, proveedores, alCambiar }: {
   )
 }
 
-function FormularioCatalogo({ config, fila, proveedores, alCerrar, alGuardar }: {
+function FormularioCatalogo({ config, fila, existentes, proveedores, alCerrar, alGuardar }: {
   config: ConfiguracionCatalogo
   fila: Fila | null
+  existentes: Fila[]
   proveedores: Proveedor[]
   alCerrar: () => void
   alGuardar: () => void
 }) {
   const esAlta = fila === null
-  const [valores, setValores] = useState<Fila>(() =>
-    Object.fromEntries(config.campos.map((c) => [c.clave, fila?.[c.clave] ?? (c.tipo === "si_no" ? false : "")])))
+  const [valores, setValores] = useState<Fila>(() => {
+    const iniciales: Fila = Object.fromEntries(
+      config.campos.map((c) => [c.clave, fila?.[c.clave] ?? (c.tipo === "si_no" ? false : "")]))
+    if (esAlta) {
+      // El código se propone siguiendo la serie: el usuario no tiene que recordar el último usado.
+      iniciales.codigo = siguienteCodigo(existentes.map((f) => String(f.codigo)), config.serie.prefijo, config.serie.ancho)
+    }
+    return iniciales
+  })
+  // Categoría como texto (sin ABM propio): se sugieren las existentes para no crear variantes como "Bebida" y "Bebidas".
+  const categorias = valoresDistintos(existentes.map((f) => String(f.categoria ?? "")))
   const { ejecutar, pendiente, error } = useAccion()
 
   const guardar = async () => {
@@ -209,8 +226,17 @@ function FormularioCatalogo({ config, fila, proveedores, alCerrar, alGuardar }: 
               )
             }
             return (
-              <Campo key={c.clave} etiqueta={c.etiqueta} htmlFor={id}>
-                {c.tipo === "proveedor" ? (
+              <Campo key={c.clave} etiqueta={c.etiqueta} htmlFor={id}
+                ayuda={c.tipo === "categoria" ? "Elegí una existente o escribí una nueva." : c.clave === "codigo" ? "Propuesto por el sistema; podés cambiarlo." : undefined}>
+                {c.tipo === "categoria" ? (
+                  <>
+                    <Input id={id} list="categorias-existentes" autoComplete="off" value={String(valores[c.clave])}
+                      onChange={(e) => setValores({ ...valores, [c.clave]: e.target.value })} />
+                    <datalist id="categorias-existentes">
+                      {categorias.map((categoria) => <option key={categoria} value={categoria} />)}
+                    </datalist>
+                  </>
+                ) : c.tipo === "proveedor" ? (
                   <Seleccion id={id} valor={String(valores[c.clave])} onCambio={(v) => setValores({ ...valores, [c.clave]: v })}
                     opciones={proveedores.map((p) => ({ valor: p.codigo, etiqueta: `${p.codigo} · ${p.nombre}` }))} />
                 ) : (

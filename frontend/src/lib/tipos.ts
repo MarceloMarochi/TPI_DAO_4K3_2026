@@ -111,7 +111,8 @@ export interface Bulto {
   estado_remito: string
   acciones_permitidas: AccionBulto[]
   unidades: number
-  detalles: { detalle_id: number; producto_codigo: string; producto_nombre: string; cantidad: number }[]
+  /** solicitado: lo pedido en la línea de la orden; si supera la cantidad, el bulto lleva un envío parcial. */
+  detalles: { detalle_id: number; producto_codigo: string; producto_nombre: string; cantidad: number; solicitado: number }[]
   historial: CambioEstado[]
 }
 

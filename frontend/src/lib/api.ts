@@ -90,6 +90,7 @@ export const api = {
     put<Existencia>(`/existencias/${encodeURIComponent(sucursal)}/${encodeURIComponent(producto)}/minimo`, { minimo }),
   registrarIngreso: (datos: { numero: string; producto_codigo: string; proveedor_codigo: string; cantidad: number; costo_unitario: string }) =>
     post<Ingreso>("/ingresos", datos),
+  ingresos: (limite = 20) => get<Ingreso[]>("/ingresos", { limite }),
   importar: (tipo: TipoImportacion, archivo: File) => {
     const formulario = new FormData()
     formulario.append("archivo", archivo)

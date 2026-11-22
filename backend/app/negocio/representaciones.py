@@ -29,7 +29,8 @@ def _bulto_a_dict(b: Bulto) -> dict:
         "unidades": b.unidades(),
         "detalles": [
             {"detalle_id": d.pedido.id, "producto_codigo": d.producto.codigo,
-             "producto_nombre": d.producto.nombre, "cantidad": d.cantidad}
+             "producto_nombre": d.producto.nombre, "cantidad": d.cantidad,
+             "solicitado": d.pedido.cantidad}
             for d in b.detalles
         ],
         "historial": [

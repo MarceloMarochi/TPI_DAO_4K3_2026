@@ -1,12 +1,8 @@
 import { useEffect, useState } from "react"
-import { BarChart3Icon, BoxesIcon, ShoppingCartIcon, StoreIcon, TruckIcon } from "lucide-react"
+import { BarChart3Icon, BoxesIcon, ShoppingCartIcon, TruckIcon } from "lucide-react"
 
-import { Seleccion } from "@/components/comunes"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Toaster } from "@/components/ui/sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useCatalogos } from "@/hooks/useCatalogos"
 import { useContexto } from "@/store/contexto"
 import { VistaCaja } from "@/vistas/caja/VistaCaja"
 import { VistaCatalogos } from "@/vistas/catalogos/VistaCatalogos"
@@ -38,7 +34,6 @@ export default function App() {
             <h1 className="text-lg font-semibold">Ventas e Inventario</h1>
             <p className="text-xs text-muted-foreground">Centro de Distribución a Locales · Grupo G-029</p>
           </div>
-          <SelectorLocal />
         </div>
       </header>
 
@@ -58,43 +53,6 @@ export default function App() {
         </Tabs>
       </main>
       <Toaster richColors position="top-right" />
-    </div>
-  )
-}
-
-/** Local en el que se opera la caja. Es contexto operativo, no un control de permisos. */
-function SelectorLocal() {
-  const { opcionesLocales } = useCatalogos()
-  const localCodigo = useContexto((s) => s.localCodigo)
-  const bloqueado = useContexto((s) => s.operacion !== null)
-  const hayBorrador = useContexto((s) => s.borrador.items.length > 0)
-  const seleccionarLocal = useContexto((s) => s.seleccionarLocal)
-  const [pendiente, setPendiente] = useState<string | null>(null)
-
-  const cambiar = (codigo: string) => {
-    if (bloqueado || codigo === (localCodigo ?? "")) return
-    if (hayBorrador) setPendiente(codigo)
-    else seleccionarLocal(codigo || null)
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <StoreIcon className="size-4 text-muted-foreground" />
-      <Seleccion disabled={bloqueado} className="w-56" valor={localCodigo ?? ""} onCambio={cambiar} opciones={opcionesLocales} placeholder="Elegir local de caja" />
-      <Dialog open={pendiente !== null} onOpenChange={(abierto) => !abierto && setPendiente(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>¿Descartar la venta en preparación?</DialogTitle>
-            <DialogDescription>
-              La venta en curso pertenece a otro local. Al cambiar de local se descarta, para no mezclar existencias de establecimientos distintos.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPendiente(null)}>Seguir con la venta</Button>
-            <Button variant="destructive" disabled={bloqueado} onClick={() => { seleccionarLocal(pendiente || null); setPendiente(null) }}>Descartar y cambiar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

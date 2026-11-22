@@ -163,3 +163,7 @@ class ServicioCatalogo(ServicioBase):
         if ingreso is None:
             raise NoEncontrado(f"No existe el ingreso {numero}")
         return _ingreso_a_dict(ingreso)
+
+    def listar_ingresos(self, limite: int = 50) -> list[dict]:
+        self._cargar()
+        return [_ingreso_a_dict(i) for i in self._catalogo.listar_ingresos(self._productos, limite)]

@@ -203,6 +203,7 @@ class DetalleBulto(BaseModel):
     producto_codigo: str
     producto_nombre: str
     cantidad: int
+    solicitado: int = Field(description="Unidades pedidas en la línea de la orden; si es mayor que cantidad, el envío es parcial")
 
 
 class CambioEstado(BaseModel):

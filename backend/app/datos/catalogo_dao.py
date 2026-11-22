@@ -140,6 +140,16 @@ class CatalogoDAO:
         fila = self._conexion.consultar_uno("SELECT * FROM ingresos_stock WHERE numero = ?", (numero,))
         if fila is None:
             return None
+        return self._ingreso_desde_fila(fila, productos)
+
+    def listar_ingresos(self, productos: dict[str, Producto], limite: int = 50) -> list[IngresoStock]:
+        """Últimos ingresos al CD, del más reciente al más antiguo."""
+        filas = self._conexion.consultar(
+            "SELECT * FROM ingresos_stock ORDER BY fecha DESC, numero DESC LIMIT ?", (limite,))
+        return [self._ingreso_desde_fila(fila, productos) for fila in filas]
+
+    @staticmethod
+    def _ingreso_desde_fila(fila, productos: dict[str, Producto]) -> IngresoStock:
         return IngresoStock(
             fila["numero"], productos[fila["producto_codigo"]], fila["proveedor_codigo"],
             fila["cantidad"], desde_centavos(fila["costo_unitario_centavos"]), texto_a_fecha(fila["fecha"]),

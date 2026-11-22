@@ -121,7 +121,7 @@ Este archivo consolida todo lo que está disperso en la carpeta. Es la **fuente 
 
 ### Clases eliminadas a propósito (se simplificó de 58 a 30)
 
-Compra, DetalleCompra, Proveedor, Categoria, SolicitudReposicion, DetalleSolicitud, RemitoDespacho, Precinto, Recepcion, Cobro, Comprobante, Caja, MovimientoCaja, Inventario, MovimientoInventario. Tampoco hay servicios especializados, DAO por entidad, BaseDAO ni Singleton.
+Compra, DetalleCompra, Proveedor, Categoria, SolicitudReposicion, DetalleSolicitud, RemitoDespacho, Precinto, Recepcion, Cobro, Comprobante, Caja, MovimientoCaja, Inventario, MovimientoInventario. Tampoco hay DAO por entidad, BaseDAO ni Singleton. (El diseño original tampoco tenía servicios especializados; la revisión del 10/11/2026 agregó cinco servicios detrás de `SistemaVentas`, ver sección 16.)
 
 ### No entra
 

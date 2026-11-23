@@ -20,12 +20,13 @@ from app.negocio.sistema import SistemaVentas
 CARPETA_EJEMPLO = config.DIRECTORIO_BACKEND / "datos_ejemplo"
 
 # El orden importa: cada archivo referencia datos de los anteriores.
+# El número del nombre indica ese orden, también para importarlos a mano desde la pantalla.
 ARCHIVOS_EJEMPLO = [
-    ("proveedores", "proveedores.csv"),
-    ("sucursales", "sucursales.csv"),
-    ("productos", "productos.csv"),
-    ("ingresos", "ingresos.csv"),
-    ("minimos", "minimos.csv"),
+    ("proveedores", "1_proveedores.csv"),
+    ("sucursales", "2_sucursales.csv"),
+    ("productos", "3_productos.csv"),
+    ("ingresos", "4_ingresos.csv"),
+    ("minimos", "5_minimos.csv"),
 ]
 
 

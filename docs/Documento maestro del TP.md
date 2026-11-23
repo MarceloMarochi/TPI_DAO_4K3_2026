@@ -715,13 +715,19 @@ Pruebas: `TestExistenciasDeAltasNuevas` y `TestBajas` en `backend/tests/api/test
 
 **Problema.** La consigna pide *consolidar necesidades de los locales* en una orden de reposición. Como la `SolicitudReposicion` se eliminó (sección 4), el CD cargaba las líneas a mano y en la interfaz no se veía que la orden sale de lo que necesita cada local.
 
-**Decisión.** En *Nueva orden de reposición*, el botón **Traer faltantes de los locales** carga una línea por cada local y producto debajo del mínimo. Las líneas son editables y nada se guarda hasta **Crear orden**, que sigue las mismas reglas que antes (RN-08 y RN-09).
+**Decisión.** En *Nueva orden de reposición*, el botón **Traer faltantes de los locales** abre el panel *Faltantes de los locales*:
+
+- Filtro **Establecimiento** (todos o un local, con cuántos productos le faltan) y selector **Producto con faltante**. **Agregar** suma a la orden la faltante elegida; con "Todos los locales", agrega una línea por cada local que necesita ese producto. Antes de agregar se ve de cuántas unidades y de dónde sale cada una.
+- **Agregar todas las faltantes** trae todas de una vez (o todas las del local elegido).
+- Lo que ya está en la orden deja de ofrecerse, así no se duplican líneas.
+
+Las líneas agregadas son editables y nada se guarda hasta **Crear orden**, que sigue las mismas reglas que antes (RN-08 y RN-09).
 
 - **Sugerido = max(0, faltante − en camino)**, con faltante = max(0, mínimo − disponible).
 - **En camino** = lo solicitado a ese local en órdenes anteriores menos lo que ya terminó: verificado (ya es disponible) o rechazado (no va a llegar). Incluye lo pendiente de preparar y los bultos en curso. Así, apretar el botón dos veces no pide dos veces lo mismo, y lo rechazado se vuelve a sugerir.
 - El CD nunca es destino; el disponible del CD no se mira acá: alcanzar o no lo controla la preparación del bulto (RN-13).
 - Cada línea traída muestra su origen ("Mínimo 10 · disponible 0 · en camino 5"). Si se cambia el destino o el producto, la nota desaparece.
 
-**Implementación.** `LogisticaDAO.en_camino_por_destino()` (una consulta agregada), `ServicioLogistica.sugerir_reposicion()` (aplica la fórmula con `Existencia.faltante()`), `SistemaVentas.sugerir_reposicion()` y `GET /api/ordenes/sugerencia` (declarada antes de `/api/ordenes/{numero}`). El frontend sólo muestra lo que calcula el servidor (`NuevaOrden` en `PanelOrdenes.tsx`).
+**Implementación.** `LogisticaDAO.en_camino_por_destino()` (una consulta agregada), `ServicioLogistica.sugerir_reposicion()` (aplica la fórmula con `Existencia.faltante()`), `SistemaVentas.sugerir_reposicion()` y `GET /api/ordenes/sugerencia` (declarada antes de `/api/ordenes/{numero}`). El frontend sólo filtra y elige entre lo que calcula el servidor (`NuevaOrden` y `FaltantesLocales` en `PanelOrdenes.tsx`).
 
 Pruebas: `TestSugerenciaReposicion` en `backend/tests/api/test_api.py`.

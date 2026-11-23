@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useAccion, useConsulta } from "@/hooks/useConsulta"
 import { api } from "@/lib/api"
 import { fechaHora, generarNumero } from "@/lib/formato"
-import type { Bulto, Orden } from "@/lib/tipos"
+import type { Bulto, Orden, SugerenciaReposicion } from "@/lib/tipos"
 import { cn } from "@/lib/utils"
 
 interface Linea {
@@ -109,7 +109,8 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
   const [lineas, setLineas] = useState<Linea[]>([lineaVacia()])
   const { ejecutar, pendiente, error } = useAccion()
   const sugerencia = useAccion()
-  const [aviso, setAviso] = useState<string | null>(null)
+  // null: panel cerrado. Un arreglo (aunque esté vacío): panel abierto con lo que respondió el servidor.
+  const [faltantes, setFaltantes] = useState<SugerenciaReposicion[] | null>(null)
 
   // Cambiar destino o producto desarma la propuesta del servidor: la nota ya no corresponde.
   const cambiar = (indice: number, cambios: Partial<Linea>) =>
@@ -117,23 +118,25 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
       ? { ...l, ...cambios, nota: "destino_codigo" in cambios || "producto_codigo" in cambios ? undefined : l.nota }
       : l)))
 
-  /** Trae las necesidades de los locales (mínimo − disponible − en camino) y las suma como líneas editables. */
-  const traerFaltantes = async () => {
-    const sugerencias = await sugerencia.ejecutar(() => api.sugerenciaReposicion())
-    if (!sugerencias) return
-    if (sugerencias.length === 0) {
-      setAviso("Ningún local está debajo del mínimo, descontando lo que ya está en camino.")
-      return
-    }
+  /** Pide al servidor las necesidades de los locales (mínimo − disponible − en camino) y abre el panel. */
+  const abrirFaltantes = async () => {
+    const respuesta = await sugerencia.ejecutar(() => api.sugerenciaReposicion())
+    if (respuesta) setFaltantes(respuesta)
+  }
+
+  /** Suma las faltantes elegidas como líneas editables (descarta la línea vacía inicial). */
+  const agregarFaltantes = (elegidas: SugerenciaReposicion[]) => {
     const cargadas = lineas.filter((l) => l.destino_codigo || l.producto_codigo || l.cantidad)
-    setLineas([...cargadas, ...sugerencias.map((s) => ({
+    setLineas([...cargadas, ...elegidas.map((s) => ({
       destino_codigo: s.destino_codigo,
       producto_codigo: s.producto_codigo,
       cantidad: String(s.sugerido),
-      nota: `Mínimo ${s.minimo} · disponible ${s.disponible}${s.en_camino > 0 ? ` · en camino ${s.en_camino}` : ""}`,
+      nota: notaFaltante(s),
     }))])
-    setAviso(`Se cargaron ${sugerencias.length} línea(s) desde los mínimos y existencias de los locales. Revisalas antes de crear la orden.`)
   }
+
+  // Lo que ya está en la orden no se vuelve a ofrecer (el servidor igual sumaría las cantidades).
+  const enLaOrden = new Set(lineas.map((l) => claveLinea(l.destino_codigo, l.producto_codigo)))
 
   const crear = async () => {
     const orden = await ejecutar(() => api.crearOrden({
@@ -147,7 +150,7 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
       toast.success(`Orden ${orden.numero} creada con ${orden.detalles.length} línea(s)`)
       setNumero(generarNumero("O"))
       setLineas([lineaVacia()])
-      setAviso(null)
+      setFaltantes(null)
       alCrear(orden)
     }
   }
@@ -160,14 +163,18 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
         <Campo etiqueta="Número de orden" htmlFor="orden-numero" className="max-w-xs">
           <Input id="orden-numero" value={numero} onChange={(e) => setNumero(e.target.value)} />
         </Campo>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="secondary" disabled={sugerencia.pendiente} onClick={() => void traerFaltantes()}>
-            <ListChecksIcon data-icon="inline-start" />
-            {sugerencia.pendiente ? "Buscando…" : "Traer faltantes de los locales"}
-          </Button>
-          <span className="text-xs text-muted-foreground">Propone mínimo − disponible − lo que ya está en camino.</span>
-        </div>
-        {aviso && <p className="text-sm text-muted-foreground">{aviso}</p>}
+        {faltantes === null ? (
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" disabled={sugerencia.pendiente} onClick={() => void abrirFaltantes()}>
+              <ListChecksIcon data-icon="inline-start" />
+              {sugerencia.pendiente ? "Buscando…" : "Traer faltantes de los locales"}
+            </Button>
+            <span className="text-xs text-muted-foreground">Propone mínimo − disponible − lo que ya está en camino.</span>
+          </div>
+        ) : (
+          <FaltantesLocales faltantes={faltantes.filter((s) => !enLaOrden.has(claveLinea(s.destino_codigo, s.producto_codigo)))}
+            hayFaltantes={faltantes.length > 0} alAgregar={agregarFaltantes} alCerrar={() => setFaltantes(null)} />
+        )}
         <MensajeError error={sugerencia.error} titulo="No se pudieron traer los faltantes" />
         {lineas.map((linea, i) => (
           <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_5rem_auto] items-end gap-2">
@@ -196,6 +203,103 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
         <MensajeError error={error} titulo="No se creó la orden" />
       </form>
     </Seccion>
+  )
+}
+
+const claveLinea = (destino: string, producto: string) => `${destino}|${producto}`
+
+const notaFaltante = (s: SugerenciaReposicion) =>
+  `Mínimo ${s.minimo} · disponible ${s.disponible}${s.en_camino > 0 ? ` · en camino ${s.en_camino}` : ""}`
+
+/**
+ * Faltantes de los locales, para sumarlos a la orden de a uno o todos juntos.
+ * Las cantidades llegan calculadas del servidor; acá sólo se filtra y se elige.
+ */
+function FaltantesLocales({ faltantes, hayFaltantes, alAgregar, alCerrar }: {
+  faltantes: SugerenciaReposicion[]
+  hayFaltantes: boolean
+  alAgregar: (elegidas: SugerenciaReposicion[]) => void
+  alCerrar: () => void
+}) {
+  const [localElegido, setLocal] = useState("")
+  const [producto, setProducto] = useState("")
+
+  // Si el local elegido ya no tiene faltantes (se agregaron todas), se trata como "Todos".
+  const locales = [...new Map(faltantes.map((s) => [s.destino_codigo, s.destino_nombre])).entries()]
+  const local = locales.some(([codigo]) => codigo === localElegido) ? localElegido : ""
+
+  const delLocal = faltantes.filter((s) => !local || s.destino_codigo === local)
+  const elegidas = delLocal.filter((s) => s.producto_codigo === producto)
+
+  const opcionesLocal: Opcion[] = [
+    { valor: "", etiqueta: "Todos los locales" },
+    ...locales.map(([codigo, nombre]) => ({
+      valor: codigo,
+      etiqueta: `${nombre} (${faltantes.filter((s) => s.destino_codigo === codigo).length})`,
+    })),
+  ]
+  const productos = [...new Map(delLocal.map((s) => [s.producto_codigo, s])).values()]
+    .sort((a, b) => a.producto_codigo.localeCompare(b.producto_codigo))
+  const opcionesProducto: Opcion[] = productos.map((s) => {
+    const cuantos = delLocal.filter((x) => x.producto_codigo === s.producto_codigo)
+    return {
+      valor: s.producto_codigo,
+      etiqueta: local
+        ? `${s.producto_codigo} · ${s.producto_nombre} — faltan ${s.sugerido}`
+        : `${s.producto_codigo} · ${s.producto_nombre} — ${cuantos.length} local(es)`,
+    }
+  })
+
+  const agregar = (lista: SugerenciaReposicion[]) => {
+    alAgregar(lista)
+    setProducto("")
+  }
+
+  const nombreLocal = locales.find(([codigo]) => codigo === local)?.[1]
+
+  return (
+    <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-medium">Faltantes de los locales</p>
+          <p className="text-xs text-muted-foreground">Mínimo − disponible − lo que ya está en camino. Elegí y agregá a la orden.</p>
+        </div>
+        <Button type="button" variant="ghost" size="icon" aria-label="Cerrar faltantes" onClick={alCerrar}><XIcon /></Button>
+      </div>
+
+      {!hayFaltantes ? (
+        <p className="text-sm text-muted-foreground">Ningún local está debajo del mínimo, descontando lo que ya está en camino.</p>
+      ) : faltantes.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Ya agregaste a la orden todas las faltantes.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] items-end gap-2">
+            <Campo etiqueta="Establecimiento" className={celdaAngosta}>
+              <Seleccion valor={local} onCambio={(v) => { setLocal(v); setProducto("") }} opciones={opcionesLocal} />
+            </Campo>
+            <Campo etiqueta="Producto con faltante" className={celdaAngosta}>
+              <Seleccion valor={producto} onCambio={setProducto} opciones={opcionesProducto} placeholder="Elegir producto…" />
+            </Campo>
+            <Button type="button" variant="outline" disabled={elegidas.length === 0} onClick={() => agregar(elegidas)}>
+              <PlusIcon data-icon="inline-start" /> Agregar
+            </Button>
+          </div>
+          {elegidas.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-muted-foreground">
+              {elegidas.map((s) => (
+                <li key={claveLinea(s.destino_codigo, s.producto_codigo)}>
+                  {s.destino_nombre}: {s.sugerido} u. ({notaFaltante(s)})
+                </li>
+              ))}
+            </ul>
+          )}
+          <Button type="button" variant="secondary" size="sm" onClick={() => agregar(delLocal)}>
+            <ListChecksIcon data-icon="inline-start" />
+            {local ? `Agregar todas las faltantes de ${nombreLocal} (${delLocal.length})` : `Agregar todas las faltantes (${delLocal.length})`}
+          </Button>
+        </>
+      )}
+    </div>
   )
 }
 

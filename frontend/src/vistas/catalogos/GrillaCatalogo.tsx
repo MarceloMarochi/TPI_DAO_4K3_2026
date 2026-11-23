@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { PencilIcon, PlusIcon, SearchIcon } from "lucide-react"
+import { PencilIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Campo, EstadoConsulta, MensajeError, Seccion, Seleccion, num } from "@/components/comunes"
@@ -105,6 +105,7 @@ export function GrillaCatalogo({ config, proveedores, alCambiar }: {
     () => listar[config.tipo]() as unknown as Promise<Fila[]>, [config.tipo])
   const [busqueda, setBusqueda] = useState("")
   const [edicion, setEdicion] = useState<{ fila: Fila | null } | null>(null)
+  const [aEliminar, setAEliminar] = useState<Fila | null>(null)
 
   const texto = busqueda.trim().toLowerCase()
   const filas = (datos ?? []).filter(
@@ -113,7 +114,7 @@ export function GrillaCatalogo({ config, proveedores, alCambiar }: {
   return (
     <Seccion
       titulo={config.titulo}
-      descripcion="Alta y edición. Los códigos no se modifican y los registros referenciados no se eliminan."
+      descripcion="Alta, edición y baja. Los códigos no se modifican. Sólo se puede eliminar lo que nunca se usó: lo que tiene movimientos es historia."
       acciones={
         <>
           <div className="relative">
@@ -134,7 +135,7 @@ export function GrillaCatalogo({ config, proveedores, alCambiar }: {
               {config.columnas.map((c) => (
                 <TableHead key={c.clave} className={c.tipo === "importe" ? num : undefined}>{c.etiqueta}</TableHead>
               ))}
-              <TableHead className="w-12" />
+              <TableHead className="w-20" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -145,16 +146,31 @@ export function GrillaCatalogo({ config, proveedores, alCambiar }: {
                     {c.tipo === "importe" ? importe(String(fila[c.clave])) : c.tipo === "si_no" ? (fila[c.clave] ? "Centro de Distribución" : "Local") : String(fila[c.clave])}
                   </TableCell>
                 ))}
-                <TableCell>
+                <TableCell className="whitespace-nowrap">
                   <Button variant="ghost" size="icon-sm" aria-label={`Editar ${fila.codigo}`} onClick={() => setEdicion({ fila })}>
                     <PencilIcon />
                   </Button>
+                  {/* El CD no se elimina nunca: el sistema necesita exactamente uno. */}
+                  {!(config.tipo === "sucursales" && fila.es_cd) && (
+                    <Button variant="ghost" size="icon-sm" aria-label={`Eliminar ${fila.codigo}`} onClick={() => setAEliminar(fila)}>
+                      <Trash2Icon />
+                    </Button>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </EstadoConsulta>
+
+      {aEliminar && (
+        <DialogoEliminar config={config} fila={aEliminar} alCerrar={() => setAEliminar(null)}
+          alEliminar={() => {
+            setAEliminar(null)
+            void recargar()
+            alCambiar()
+          }} />
+      )}
 
       {edicion && (
         <FormularioCatalogo
@@ -252,6 +268,48 @@ function FormularioCatalogo({ config, fila, existentes, proveedores, alCerrar, a
         <DialogFooter>
           <Button variant="outline" onClick={alCerrar}>Cancelar</Button>
           <Button type="submit" form="form-catalogo" disabled={pendiente}>{pendiente ? "Guardando…" : "Guardar"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+/** Confirma la baja. El servidor decide si se puede: si el registro tiene historia, explica por qué no. */
+function DialogoEliminar({ config, fila, alCerrar, alEliminar }: {
+  config: ConfiguracionCatalogo
+  fila: Fila
+  alCerrar: () => void
+  alEliminar: () => void
+}) {
+  const { ejecutar, pendiente, error } = useAccion()
+  const codigo = String(fila.codigo)
+
+  const eliminar = async () => {
+    const hecho = await ejecutar(async () => { await api.eliminarCatalogo(config.tipo, codigo); return true })
+    if (hecho) {
+      toast.success(`Se eliminó el ${config.singular} ${codigo}.`)
+      alEliminar()
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(abierto) => !abierto && alCerrar()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>¿Eliminar el {config.singular} {codigo}?</DialogTitle>
+          <DialogDescription>
+            {String(fila.nombre)}. Sólo se elimina si nunca se usó; el código queda libre para volver a usarlo.
+            Si ya tiene movimientos no se puede borrar, porque es parte de la historia del sistema.
+          </DialogDescription>
+        </DialogHeader>
+        <MensajeError error={error} titulo="No se eliminó" />
+        <DialogFooter>
+          <Button variant="outline" onClick={alCerrar}>{error ? "Cerrar" : "Cancelar"}</Button>
+          {!error && (
+            <Button variant="destructive" disabled={pendiente} onClick={() => void eliminar()}>
+              {pendiente ? "Eliminando…" : "Eliminar"}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

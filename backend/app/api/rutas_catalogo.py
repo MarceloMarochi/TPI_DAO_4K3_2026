@@ -33,6 +33,12 @@ def editar_proveedor(codigo: str, datos: e.ProveedorEdicion, sistema: SistemaVen
     return sistema.guardar_catalogo("proveedor", datos.model_dump() | {"codigo": codigo}, alta=False)
 
 
+@router.delete("/proveedores/{codigo}", status_code=204)
+def eliminar_proveedor(codigo: str, sistema: SistemaVentas = Depends(obtener_sistema)):
+    """Sólo si nunca se usó (sin productos ni ingresos). Si tiene historia responde 409 con el motivo."""
+    sistema.eliminar_catalogo("proveedor", codigo)
+
+
 # --- Sucursales ---
 
 @router.get("/sucursales", response_model=list[e.Sucursal])
@@ -50,6 +56,12 @@ def editar_sucursal(codigo: str, datos: e.SucursalEdicion, sistema: SistemaVenta
     return sistema.guardar_catalogo("sucursal", datos.model_dump() | {"codigo": codigo}, alta=False)
 
 
+@router.delete("/sucursales/{codigo}", status_code=204)
+def eliminar_sucursal(codigo: str, sistema: SistemaVentas = Depends(obtener_sistema)):
+    """Sólo si nunca se usó (sin órdenes, bultos, ventas ni stock; el CD nunca). Si tiene historia responde 409 con el motivo."""
+    sistema.eliminar_catalogo("sucursal", codigo)
+
+
 # --- Productos ---
 
 @router.get("/productos", response_model=list[e.Producto])
@@ -65,6 +77,12 @@ def alta_producto(datos: e.ProductoAlta, sistema: SistemaVentas = Depends(obtene
 @router.put("/productos/{codigo}", response_model=e.Producto)
 def editar_producto(codigo: str, datos: e.ProductoEdicion, sistema: SistemaVentas = Depends(obtener_sistema)):
     return sistema.guardar_catalogo("producto", datos.model_dump() | {"codigo": codigo}, alta=False)
+
+
+@router.delete("/productos/{codigo}", status_code=204)
+def eliminar_producto(codigo: str, sistema: SistemaVentas = Depends(obtener_sistema)):
+    """Sólo si nunca se usó (sin ingresos, órdenes, ventas ni stock). Si tiene historia responde 409 con el motivo."""
+    sistema.eliminar_catalogo("producto", codigo)
 
 
 # --- Existencias ---

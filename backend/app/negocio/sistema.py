@@ -27,6 +27,9 @@ class SistemaVentas:
     def guardar_catalogo(self, tipo: str, datos: dict, alta: bool=True) -> dict:
         return self._catalogo.guardar_catalogo(tipo, datos, alta)
 
+    def eliminar_catalogo(self, tipo: str, codigo: str) -> None:
+        self._catalogo.eliminar_catalogo(tipo, codigo)
+
     def configurar_minimo(self, sucursal_codigo: str, producto_codigo: str, minimo) -> dict:
         return self._catalogo.configurar_minimo(sucursal_codigo, producto_codigo, minimo)
 

@@ -8,7 +8,8 @@ import { FormularioIngreso, ImportarCSV, ListaIngresos, PanelExistencias } from 
 
 export function VistaCatalogos() {
   const catalogos = useCatalogos()
-  // Cambiar la clave fuerza a las sub-vistas a recargar después de una importación o un ingreso.
+  // Cambiar la clave fuerza a las sub-vistas a recargar después de un alta, una baja, una importación o un ingreso
+  // (un producto o local nuevo crea existencias, así que el panel de existencias también tiene que recargarse).
   const [version, setVersion] = useState(0)
   const actualizar = () => {
     setVersion((v) => v + 1)
@@ -27,7 +28,7 @@ export function VistaCatalogos() {
 
         {CATALOGOS.map((c) => (
           <TabsContent key={c.tipo} value={c.tipo}>
-            <GrillaCatalogo key={version} config={c} proveedores={catalogos.proveedores} alCambiar={avisarCambioDeCatalogos} />
+            <GrillaCatalogo key={version} config={c} proveedores={catalogos.proveedores} alCambiar={actualizar} />
           </TabsContent>
         ))}
         <TabsContent value="existencias">

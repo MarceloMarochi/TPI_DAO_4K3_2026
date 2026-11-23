@@ -39,6 +39,30 @@ class ServicioLogistica(ServicioBase):
             self._logistica.guardar_orden(orden)
             return self._orden_a_dict(orden)
 
+    def sugerir_reposicion(self) -> list[dict]:
+        """Necesidades de los locales según sus mínimos, para consolidarlas en una orden.
+
+        sugerido = faltante (mínimo − disponible) − lo que ya está en camino a ese local.
+        Sólo propone: no guarda nada. Las líneas se revisan y se confirman con crear_orden.
+        """
+        self._cargar()
+        en_camino = self._logistica.en_camino_por_destino()
+        sugerencias = []
+        locales = sorted((s for s in self._sucursales.values() if not s.es_cd), key=lambda s: s.codigo)
+        for local in locales:
+            for existencia in sorted(local.existencias, key=lambda e: e.producto.codigo):
+                camino = en_camino.get((local.codigo, existencia.producto.codigo), 0)
+                sugerido = max(0, existencia.faltante() - camino)
+                if sugerido > 0:
+                    sugerencias.append({
+                        "destino_codigo": local.codigo, "destino_nombre": local.nombre,
+                        "producto_codigo": existencia.producto.codigo,
+                        "producto_nombre": existencia.producto.nombre,
+                        "disponible": existencia.cantidad, "minimo": existencia.minimo,
+                        "faltante": existencia.faltante(), "en_camino": camino, "sugerido": sugerido,
+                    })
+        return sugerencias
+
     def preparar_bulto(self, datos: dict) -> dict:
         """datos: {codigo, orden_numero, destino_codigo, remito_numero, lineas: [{detalle_id, cantidad}]}
 

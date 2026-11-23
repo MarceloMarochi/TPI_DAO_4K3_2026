@@ -82,6 +82,19 @@ export interface Orden {
   detalles: DetalleOrden[]
 }
 
+/** Necesidad de un local según su mínimo. Todas las cantidades las calcula el servidor. */
+export interface SugerenciaReposicion {
+  destino_codigo: string
+  destino_nombre: string
+  producto_codigo: string
+  producto_nombre: string
+  disponible: number
+  minimo: number
+  faltante: number
+  en_camino: number
+  sugerido: number
+}
+
 export interface OrdenResumen {
   numero: string
   fecha: FechaISO

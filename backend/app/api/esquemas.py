@@ -171,6 +171,18 @@ class OrdenResumen(BaseModel):
     pendiente: int
 
 
+class SugerenciaReposicion(BaseModel):
+    destino_codigo: str
+    destino_nombre: str
+    producto_codigo: str
+    producto_nombre: str
+    disponible: int
+    minimo: int
+    faltante: int = Field(description="max(0, mínimo − disponible)")
+    en_camino: int = Field(description="Pedido a este local que todavía no se verificó ni se rechazó")
+    sugerido: int = Field(description="max(0, faltante − en camino)")
+
+
 class LineaBultoEntrada(Esquema):
     detalle_id: CantidadPositiva
     cantidad: CantidadPositiva

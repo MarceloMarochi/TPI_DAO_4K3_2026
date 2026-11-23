@@ -6,7 +6,7 @@ import type { SolicitudVenta } from "./operacionVenta"
 import type {
   Bulto, BultoResumen, CodigoMedio, Cotizacion, DetalleError, Devolucion, Existencia, Ingreso, ItemVenta,
   MedioPago, NombreReporte, Orden, OrdenResumen, Producto, Proveedor, Reporte, ResultadoImportacion, Sucursal,
-  TipoImportacion, Venta, VentaResumen,
+  SugerenciaReposicion, TipoImportacion, Venta, VentaResumen,
 } from "./tipos"
 
 /** El servidor respondió con un error (422 dato inválido, 404 inexistente, 409 conflicto). */
@@ -104,6 +104,7 @@ export const api = {
 
   // Logística
   ordenes: (pendientes: boolean) => get<OrdenResumen[]>("/ordenes", { pendientes }),
+  sugerenciaReposicion: () => get<SugerenciaReposicion[]>("/ordenes/sugerencia"),
   orden: (numero: string) => get<Orden>(`/ordenes/${encodeURIComponent(numero)}`),
   crearOrden: (datos: { numero: string; necesidades: { destino_codigo: string; producto_codigo: string; cantidad: number }[] }) =>
     post<Orden>("/ordenes", datos),

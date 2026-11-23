@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { PackagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react"
+import { ListChecksIcon, PackagePlusIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react"
 import { toast } from "sonner"
 
 import { Campo, EstadoConsulta, MensajeError, Seccion, Seleccion, num, type Opcion } from "@/components/comunes"
@@ -18,9 +18,14 @@ interface Linea {
   destino_codigo: string
   producto_codigo: string
   cantidad: string
+  /** De dónde salió la cantidad cuando la propuso el servidor (mínimo, disponible, en camino). */
+  nota?: string
 }
 
 const lineaVacia = (): Linea => ({ destino_codigo: "", producto_codigo: "", cantidad: "" })
+
+// Un nombre de producto largo no debe ensanchar su columna y empujar la papelera fuera de la fila.
+const celdaAngosta = "min-w-0 grid-cols-[minmax(0,1fr)]"
 
 export function PanelOrdenes({ opcionesLocales, opcionesProductos, nombreSucursal, alPrepararBulto }: {
   opcionesLocales: Opcion[]
@@ -103,19 +108,46 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
   const [numero, setNumero] = useState(() => generarNumero("O"))
   const [lineas, setLineas] = useState<Linea[]>([lineaVacia()])
   const { ejecutar, pendiente, error } = useAccion()
+  const sugerencia = useAccion()
+  const [aviso, setAviso] = useState<string | null>(null)
 
+  // Cambiar destino o producto desarma la propuesta del servidor: la nota ya no corresponde.
   const cambiar = (indice: number, cambios: Partial<Linea>) =>
-    setLineas(lineas.map((l, i) => (i === indice ? { ...l, ...cambios } : l)))
+    setLineas(lineas.map((l, i) => (i === indice
+      ? { ...l, ...cambios, nota: "destino_codigo" in cambios || "producto_codigo" in cambios ? undefined : l.nota }
+      : l)))
+
+  /** Trae las necesidades de los locales (mínimo − disponible − en camino) y las suma como líneas editables. */
+  const traerFaltantes = async () => {
+    const sugerencias = await sugerencia.ejecutar(() => api.sugerenciaReposicion())
+    if (!sugerencias) return
+    if (sugerencias.length === 0) {
+      setAviso("Ningún local está debajo del mínimo, descontando lo que ya está en camino.")
+      return
+    }
+    const cargadas = lineas.filter((l) => l.destino_codigo || l.producto_codigo || l.cantidad)
+    setLineas([...cargadas, ...sugerencias.map((s) => ({
+      destino_codigo: s.destino_codigo,
+      producto_codigo: s.producto_codigo,
+      cantidad: String(s.sugerido),
+      nota: `Mínimo ${s.minimo} · disponible ${s.disponible}${s.en_camino > 0 ? ` · en camino ${s.en_camino}` : ""}`,
+    }))])
+    setAviso(`Se cargaron ${sugerencias.length} línea(s) desde los mínimos y existencias de los locales. Revisalas antes de crear la orden.`)
+  }
 
   const crear = async () => {
     const orden = await ejecutar(() => api.crearOrden({
       numero,
-      necesidades: lineas.map((l) => ({ ...l, cantidad: Number(l.cantidad) })),
+      // Sólo los datos de la necesidad: la API rechaza campos desconocidos (la nota es de la pantalla).
+      necesidades: lineas.map((l) => ({
+        destino_codigo: l.destino_codigo, producto_codigo: l.producto_codigo, cantidad: Number(l.cantidad),
+      })),
     }))
     if (orden) {
       toast.success(`Orden ${orden.numero} creada con ${orden.detalles.length} línea(s)`)
       setNumero(generarNumero("O"))
       setLineas([lineaVacia()])
+      setAviso(null)
       alCrear(orden)
     }
   }
@@ -128,21 +160,31 @@ function NuevaOrden({ opcionesLocales, opcionesProductos, alCrear }: {
         <Campo etiqueta="Número de orden" htmlFor="orden-numero" className="max-w-xs">
           <Input id="orden-numero" value={numero} onChange={(e) => setNumero(e.target.value)} />
         </Campo>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" disabled={sugerencia.pendiente} onClick={() => void traerFaltantes()}>
+            <ListChecksIcon data-icon="inline-start" />
+            {sugerencia.pendiente ? "Buscando…" : "Traer faltantes de los locales"}
+          </Button>
+          <span className="text-xs text-muted-foreground">Propone mínimo − disponible − lo que ya está en camino.</span>
+        </div>
+        {aviso && <p className="text-sm text-muted-foreground">{aviso}</p>}
+        <MensajeError error={sugerencia.error} titulo="No se pudieron traer los faltantes" />
         {lineas.map((linea, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1.5fr_5rem_auto] items-end gap-2">
-            <Campo etiqueta={i === 0 ? "Destino" : ""}>
+          <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_5rem_auto] items-end gap-2">
+            <Campo etiqueta={i === 0 ? "Destino" : ""} className={celdaAngosta}>
               <Seleccion valor={linea.destino_codigo} onCambio={(v) => cambiar(i, { destino_codigo: v })} opciones={opcionesLocales} />
             </Campo>
-            <Campo etiqueta={i === 0 ? "Producto" : ""}>
+            <Campo etiqueta={i === 0 ? "Producto" : ""} className={celdaAngosta}>
               <Seleccion valor={linea.producto_codigo} onCambio={(v) => cambiar(i, { producto_codigo: v })} opciones={opcionesProductos} />
             </Campo>
-            <Campo etiqueta={i === 0 ? "Cantidad" : ""}>
+            <Campo etiqueta={i === 0 ? "Cantidad" : ""} className={celdaAngosta}>
               <Input inputMode="numeric" value={linea.cantidad} onChange={(e) => cambiar(i, { cantidad: e.target.value })} aria-label="Cantidad" />
             </Campo>
             <Button type="button" variant="ghost" size="icon" aria-label="Quitar línea" disabled={lineas.length === 1}
               onClick={() => setLineas(lineas.filter((_, j) => j !== i))}>
               <Trash2Icon />
             </Button>
+            {linea.nota && <p className="col-span-4 -mt-1 text-xs text-muted-foreground">{linea.nota}</p>}
           </div>
         ))}
         <div className="flex gap-2">

@@ -27,6 +27,16 @@ def crear_orden(datos: e.OrdenEntrada, sistema: SistemaVentas = Depends(obtener_
     return sistema.crear_orden(datos.model_dump())
 
 
+@router.get("/ordenes/sugerencia", response_model=list[e.SugerenciaReposicion])
+def sugerir_reposicion(sistema: SistemaVentas = Depends(obtener_sistema)):
+    """Necesidades de los locales según sus mínimos, descontando lo que ya está en camino.
+
+    No guarda nada: la interfaz carga estas líneas en una orden nueva para revisarlas.
+    (Va antes de /ordenes/{numero} para que "sugerencia" no se tome como número de orden.)
+    """
+    return sistema.sugerir_reposicion()
+
+
 @router.get("/ordenes/{numero}", response_model=e.Orden)
 def consultar_orden(numero: str, sistema: SistemaVentas = Depends(obtener_sistema)):
     return sistema.consultar_orden(numero)

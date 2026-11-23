@@ -241,6 +241,57 @@ class TestLogistica:
         assert [(o["numero"], o["pendiente"]) for o in ordenes] == [("O-1", 8)]
 
 
+class TestSugerenciaReposicion:
+    """La orden nace de los mínimos: sugerido = faltante − lo que ya está en camino al local."""
+
+    def _sugerido(self, cliente, destino="L01", producto="P001"):
+        sugerencias = cliente.get("/api/ordenes/sugerencia").json()
+        for s in sugerencias:
+            if (s["destino_codigo"], s["producto_codigo"]) == (destino, producto):
+                return s
+        return None
+
+    def test_con_la_demo_sugiere_el_minimo_de_cada_local(self, cliente):
+        sugerencias = cliente.get("/api/ordenes/sugerencia").json()
+        # 3 locales x 10 productos, todos en 0 con mínimo 10; el CD nunca es destino.
+        assert len(sugerencias) == 30
+        assert {s["destino_codigo"] for s in sugerencias} == {"L01", "L02", "L03"}
+        assert self._sugerido(cliente) == {
+            "destino_codigo": "L01", "destino_nombre": "Local Centro",
+            "producto_codigo": "P001", "producto_nombre": "Yerba mate 1 kg",
+            "disponible": 0, "minimo": 10, "faltante": 10, "en_camino": 0, "sugerido": 10}
+
+    def test_descuenta_lo_pedido_en_ordenes_anteriores(self, cliente):
+        cliente.post("/api/ordenes", json={"numero": "O-1", "necesidades": [
+            {"destino_codigo": "L01", "producto_codigo": "P001", "cantidad": 4}]})
+        sugerencia = self._sugerido(cliente)
+        assert (sugerencia["en_camino"], sugerencia["sugerido"]) == (4, 6)
+        cliente.post("/api/ordenes", json={"numero": "O-2", "necesidades": [
+            {"destino_codigo": "L01", "producto_codigo": "P001", "cantidad": 6}]})
+        assert self._sugerido(cliente) is None  # ya está todo pedido: no se pide dos veces
+
+    def test_lo_verificado_ya_no_se_sugiere(self, cliente):
+        abastecer(cliente, cantidad=20)  # disponible 20 > mínimo 10
+        assert self._sugerido(cliente) is None
+
+    def test_lo_rechazado_se_vuelve_a_sugerir(self, cliente):
+        orden = cliente.post("/api/ordenes", json={"numero": "O-1", "necesidades": [
+            {"destino_codigo": "L01", "producto_codigo": "P001", "cantidad": 10}]}).json()
+        cliente.post("/api/bultos", json={
+            "codigo": "B-1", "orden_numero": "O-1", "destino_codigo": "L01", "remito_numero": "R-1",
+            "lineas": [{"detalle_id": orden["detalles"][0]["id"], "cantidad": 10}]})
+        cliente.post("/api/bultos/B-1/precintar", json={"numero": "PR-1"})
+        cliente.post("/api/bultos/B-1/despachar")
+        assert self._sugerido(cliente) is None  # en tránsito: está en camino
+        cliente.post("/api/bultos/B-1/recibir", json={"intacto": False, "motivo": "Precinto roto"})
+        sugerencia = self._sugerido(cliente)
+        assert (sugerencia["en_camino"], sugerencia["sugerido"]) == (0, 10)
+
+    def test_no_se_confunde_con_el_numero_de_orden(self, cliente):
+        assert cliente.get("/api/ordenes/sugerencia").status_code == 200
+        assert cliente.get("/api/ordenes/O-NO-EXISTE").status_code == 404
+
+
 class TestCaja:
     def test_medios_de_pago(self, cliente):
         assert cliente.get("/api/medios-pago").json() == [

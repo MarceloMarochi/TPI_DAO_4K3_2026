@@ -51,6 +51,9 @@ class SistemaVentas:
     def crear_orden(self, datos: dict) -> dict:
         return self._logistica.crear_orden(datos)
 
+    def sugerir_reposicion(self) -> list[dict]:
+        return self._logistica.sugerir_reposicion()
+
     def preparar_bulto(self, datos: dict) -> dict:
         return self._logistica.preparar_bulto(datos)
 

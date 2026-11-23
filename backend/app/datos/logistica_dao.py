@@ -90,6 +90,24 @@ class LogisticaDAO:
         )
         return [dict(fila) | {"pendiente": fila["solicitado"] - fila["asignado"]} for fila in filas]
 
+    def en_camino_por_destino(self) -> dict[tuple[str, str], int]:
+        """Unidades pedidas a cada local que todavía pueden llegar, por (destino, producto).
+
+        Es lo solicitado en órdenes menos lo que ya terminó: verificado (ya es disponible)
+        o rechazado (no va a llegar). Incluye lo pendiente de preparar y los bultos en curso.
+        """
+        filas = self._conexion.consultar(
+            """SELECT d.destino_codigo, d.producto_codigo,
+                      SUM(d.cantidad - COALESCE((
+                          SELECT SUM(db.cantidad) FROM detalles_bulto db
+                          JOIN bultos b ON b.codigo = db.bulto_codigo
+                          WHERE db.detalle_reposicion_id = d.id
+                            AND b.estado IN ('VERIFICADO', 'RECHAZADO')), 0)) AS en_camino
+               FROM detalles_reposicion d
+               GROUP BY d.destino_codigo, d.producto_codigo"""
+        )
+        return {(f["destino_codigo"], f["producto_codigo"]): f["en_camino"] for f in filas}
+
     def listar_ordenes(self, solo_con_pendientes: bool = False) -> list[dict]:
         filas = self._conexion.consultar(
             """SELECT o.numero, o.fecha, o.origen_codigo, o.cerrada,

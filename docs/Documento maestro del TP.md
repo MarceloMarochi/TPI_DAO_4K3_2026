@@ -125,7 +125,7 @@ Compra, DetalleCompra, Proveedor, Categoria, SolicitudReposicion, DetalleSolicit
 
 ### No entra
 
-ABM por entidad, bajas físicas de datos referenciados, circuito de compras y cuentas a pagar, cancelación o reapertura de bultos, reintegro logístico al origen, lotes y vencimientos, promociones, pagos combinados, cuotas, cuentas corrientes, inventarios físicos, usuarios, roles y autenticación, despliegue público, integraciones bancarias o fiscales.
+ABM por entidad, bajas físicas de datos referenciados (sí se pueden borrar los registros que nunca se usaron, ver sección 19), circuito de compras y cuentas a pagar, cancelación o reapertura de bultos, reintegro logístico al origen, lotes y vencimientos, promociones, pagos combinados, cuotas, cuentas corrientes, inventarios físicos, usuarios, roles y autenticación, despliegue público, integraciones bancarias o fiscales.
 
 ---
 
@@ -418,7 +418,7 @@ El contrato vivo está en `http://localhost:8000/docs` (Swagger) y `/openapi.jso
 
 | Área | Operaciones |
 | --- | --- |
-| Catálogos y stock | `GET/POST /api/proveedores`, `PUT /api/proveedores/{codigo}` · lo mismo para `/api/sucursales` y `/api/productos` · `GET /api/existencias?sucursal=&producto=` · `PUT /api/existencias/{sucursal}/{producto}/minimo` · `POST /api/ingresos`, `GET /api/ingresos?limite=`, `GET /api/ingresos/{numero}` · `POST /api/importaciones/{tipo}` (multipart, campo `archivo`) |
+| Catálogos y stock | `GET/POST /api/proveedores`, `PUT/DELETE /api/proveedores/{codigo}` · lo mismo para `/api/sucursales` y `/api/productos` · `GET /api/existencias?sucursal=&producto=` · `PUT /api/existencias/{sucursal}/{producto}/minimo` · `POST /api/ingresos`, `GET /api/ingresos?limite=`, `GET /api/ingresos/{numero}` · `POST /api/importaciones/{tipo}` (multipart, campo `archivo`) |
 | Logística | `GET /api/ordenes?pendientes=`, `POST /api/ordenes`, `GET /api/ordenes/{numero}` · `GET /api/bultos?estado=&destino=`, `POST /api/bultos`, `GET /api/bultos/{codigo}` · `POST /api/bultos/{codigo}/precintar`, `/despachar`, `/recibir`, `/verificar` |
 | Caja | `GET /api/medios-pago` · `POST /api/ventas/cotizacion` · `POST /api/ventas`, `GET /api/ventas?local=`, `GET /api/ventas/{numero}` · `POST /api/devoluciones`, `GET /api/devoluciones/{numero}` |
 | General | `GET /api/salud` |
@@ -438,7 +438,7 @@ Decisiones:
 
 | Área | Qué hace |
 | --- | --- |
-| **Catálogos y stock** | Grilla reutilizable para productos, sucursales y proveedores (alta, edición, búsqueda; sin bajas). Panel de existencias (sólo el mínimo es editable). Formulario de ingreso al CD. Importación CSV con errores por fila |
+| **Catálogos y stock** | Grilla reutilizable para productos, sucursales y proveedores (alta, edición, búsqueda y baja de lo que nunca se usó). Panel de existencias (sólo el mínimo es editable). Formulario de ingreso al CD. Importación CSV con errores por fila |
 | **Logística** | Alta y consulta de órdenes con pendientes. Preparación de bulto (orden + destino + líneas, código y remito). Tabla de bultos filtrable por estado y destino; detalle con contenido e historial. Botones Precintar, Despachar, Recibir y Verificar según las acciones permitidas |
 | **Caja** | Local en el que se opera, buscador de productos, cantidades, medio de pago; cotización del servidor; confirmación; descarga del comprobante PDF. Devoluciones: buscar venta, elegir línea, cantidad, aptitud y motivo |
 | **Reportes** | Selector R1 a R4, filtros, tabla con totales y descarga PDF con los mismos filtros |
@@ -681,4 +681,32 @@ Cuando el próximo paso del bulto corresponde al otro lugar, el detalle lo indic
 - Con la base vacía, la pantalla inicial permite importar establecimientos por CSV.
 - Los catálogos se recargan en todas las vistas cuando cambian (`avisarCambioDeCatalogos`), así un local nuevo aparece enseguida en el selector.
 - Pruebas: `frontend/tests/contextoOperativo.test.ts`.
+
+## 19. Bajas de registros sin historia y existencias de altas nuevas (22/11/2026)
+
+### 19.1 Eliminar sólo lo que nunca se usó
+
+Sirve para corregir un error de carga (y liberar el código) sin romper la trazabilidad. Lo que ya tiene movimientos **no se borra**: la consigna exige trazabilidad inmutable y los triggers del esquema impiden borrar historial, ingresos, ventas, devoluciones y contenido de bultos.
+
+| Registro | Se elimina si no tiene… | Además |
+| --- | --- | --- |
+| Proveedor | productos ni ingresos | — |
+| Producto | ingresos, líneas de orden, líneas de venta ni stock | se borran sus existencias en 0 |
+| Local | líneas de orden, bultos, ventas ni stock | se borran sus existencias en 0 |
+| CD | — | **nunca** se elimina: el sistema necesita exactamente uno |
+
+- API: `DELETE /api/{proveedores|productos|sucursales}/{codigo}` responde 204, 404 si no existe o **409 con el motivo** ("No se puede eliminar el producto P001 porque tiene historia: 1 ingreso, 200 unidades en stock").
+- `ServicioCatalogo.eliminar_catalogo` verifica dentro de la transacción; `CatalogoDAO.referencias_de_*` cuenta las referencias y `eliminar_*` borra. Las existencias en 0 son configuración (mínimos), no historia.
+- Frontend: botón de papelera en la grilla con diálogo de confirmación; si el servidor responde 409, muestra el motivo. El CD no tiene botón.
+- **Mejora futura (no implementada):** baja lógica (`activo`) para ocultar de los selectores lo que tiene historia, por ejemplo un producto discontinuado, sin perder sus movimientos.
+
+### 19.2 Existencias en 0 al dar de alta
+
+Antes, la fila de existencia se creaba recién con el primer movimiento o mínimo (`Sucursal.existencia_para`), así que un producto o local nuevo no aparecía en *Existencias y mínimos* y no se le podía fijar el mínimo desde la interfaz.
+
+- Alta de **producto**: crea su existencia en 0 (mínimo 0) en todos los establecimientos.
+- Alta de **establecimiento**: crea existencias en 0 para todos los productos.
+- `CatalogoDAO.crear_existencias_vacias` usa `ON CONFLICT DO NOTHING`: nunca pisa disponibles ni mínimos existentes. La importación CSV usa los mismos métodos, así que queda cubierta.
+
+Pruebas: `TestExistenciasDeAltasNuevas` y `TestBajas` en `backend/tests/api/test_api.py`.
 

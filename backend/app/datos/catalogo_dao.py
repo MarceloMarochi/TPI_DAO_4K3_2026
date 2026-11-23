@@ -76,6 +76,15 @@ class CatalogoDAO:
             [(sucursal.codigo, e.producto.codigo, e.cantidad, e.minimo) for e in sucursal.existencias],
         )
 
+    def crear_existencias_vacias(self, pares: list[tuple[str, str]]) -> None:
+        """Crea en 0 las existencias (sucursal, producto) que falten, sin tocar las que ya hay."""
+        self._conexion.ejecutar_varios(
+            """INSERT INTO existencias (sucursal_codigo, producto_codigo, cantidad, minimo)
+               VALUES (?, ?, 0, 0)
+               ON CONFLICT (sucursal_codigo, producto_codigo) DO NOTHING""",
+            pares,
+        )
+
     def cargar_catalogo(self) -> tuple[dict[str, Producto], dict[str, Sucursal]]:
         """Productos y establecimientos (con sus existencias) para usar en una solicitud."""
         productos = self._cargar_productos()
@@ -154,3 +163,45 @@ class CatalogoDAO:
             fila["numero"], productos[fila["producto_codigo"]], fila["proveedor_codigo"],
             fila["cantidad"], desde_centavos(fila["costo_unitario_centavos"]), texto_a_fecha(fila["fecha"]),
         )
+
+    # --- Bajas de registros sin historia ---
+    # Sólo se borra lo que nunca se usó. Lo que tiene movimientos es historia y no se borra
+    # (trazabilidad inmutable); además, los triggers y las claves foráneas lo impedirían.
+
+    def _contar(self, sql: str, codigo: str) -> int:
+        return self._conexion.consultar_uno(sql, (codigo,))[0] or 0
+
+    def referencias_de_proveedor(self, codigo: str) -> dict[str, int]:
+        return {
+            "productos": self._contar("SELECT COUNT(*) FROM productos WHERE proveedor_codigo = ?", codigo),
+            "ingresos": self._contar("SELECT COUNT(*) FROM ingresos_stock WHERE proveedor_codigo = ?", codigo),
+        }
+
+    def referencias_de_producto(self, codigo: str) -> dict[str, int]:
+        return {
+            "ingresos": self._contar("SELECT COUNT(*) FROM ingresos_stock WHERE producto_codigo = ?", codigo),
+            "líneas de orden": self._contar("SELECT COUNT(*) FROM detalles_reposicion WHERE producto_codigo = ?", codigo),
+            "líneas de venta": self._contar("SELECT COUNT(*) FROM detalles_venta WHERE producto_codigo = ?", codigo),
+            "unidades en stock": self._contar("SELECT SUM(cantidad) FROM existencias WHERE producto_codigo = ?", codigo),
+        }
+
+    def referencias_de_sucursal(self, codigo: str) -> dict[str, int]:
+        return {
+            "líneas de orden": self._contar("SELECT COUNT(*) FROM detalles_reposicion WHERE destino_codigo = ?", codigo),
+            "bultos": self._contar("SELECT COUNT(*) FROM bultos WHERE destino_codigo = ?", codigo),
+            "ventas": self._contar("SELECT COUNT(*) FROM ventas WHERE local_codigo = ?", codigo),
+            "unidades en stock": self._contar("SELECT SUM(cantidad) FROM existencias WHERE sucursal_codigo = ?", codigo),
+        }
+
+    def eliminar_proveedor(self, codigo: str) -> None:
+        self._conexion.ejecutar("DELETE FROM proveedores WHERE codigo = ?", (codigo,))
+
+    def eliminar_producto(self, codigo: str) -> None:
+        """Borra el producto y sus existencias en 0 (configuración de mínimos, no historia)."""
+        self._conexion.ejecutar("DELETE FROM existencias WHERE producto_codigo = ?", (codigo,))
+        self._conexion.ejecutar("DELETE FROM productos WHERE codigo = ?", (codigo,))
+
+    def eliminar_sucursal(self, codigo: str) -> None:
+        """Borra el local y sus existencias en 0 (configuración de mínimos, no historia)."""
+        self._conexion.ejecutar("DELETE FROM existencias WHERE sucursal_codigo = ?", (codigo,))
+        self._conexion.ejecutar("DELETE FROM sucursales WHERE codigo = ?", (codigo,))

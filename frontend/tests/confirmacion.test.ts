@@ -21,7 +21,7 @@ function respuesta(d: SolicitudVenta): Venta {
 
 function preparar(transporte: Parameters<typeof crearContexto>[0]) {
   const store = crearContexto(transporte)
-  store.getState().seleccionarLocal("L1")
+  store.getState().seleccionarSucursal("L1")
   store.getState().agregarItem({ producto_codigo: "P1", producto_nombre: "Producto", precio: "10.00" })
   return store
 }
@@ -44,11 +44,11 @@ test("bloquea todas las ediciones y el doble envío mientras espera la respuesta
   store.getState().quitarItem("P1")
   store.getState().agregarItem({ producto_codigo: "P2", producto_nombre: "Otro", precio: "1" })
   store.getState().descartarBorrador()
-  store.getState().seleccionarLocal("L2")
+  store.getState().seleccionarSucursal("L2")
   await confirmar(store)
   assert.equal(envios, 1)
   assert.equal(store.getState().borrador, original)
-  assert.equal(store.getState().localCodigo, "L1")
+  assert.equal(store.getState().sucursalCodigo, "L1")
   assert.ok(Object.isFrozen(enviada.items[0]))
   resolver(respuesta(enviada))
   await pendiente

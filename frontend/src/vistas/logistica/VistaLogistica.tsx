@@ -6,6 +6,7 @@ import { useCatalogos } from "@/hooks/useCatalogos"
 import { PanelBultos } from "./PanelBultos"
 import { PanelOrdenes } from "./PanelOrdenes"
 
+/** Logística del CD: arma órdenes, prepara bultos, los precinta y los despacha. */
 export function VistaLogistica() {
   const catalogos = useCatalogos()
   const [pestania, setPestania] = useState("ordenes")
@@ -16,7 +17,7 @@ export function VistaLogistica() {
       <Tabs value={pestania} onValueChange={(v) => setPestania(String(v))}>
         <TabsList variant="line" className="mb-4">
           <TabsTrigger value="ordenes">Órdenes y preparación</TabsTrigger>
-          <TabsTrigger value="bultos">Seguimiento de bultos</TabsTrigger>
+          <TabsTrigger value="bultos">Despacho y seguimiento</TabsTrigger>
         </TabsList>
         <TabsContent value="ordenes">
           <PanelOrdenes opcionesLocales={catalogos.opcionesLocales} opcionesProductos={catalogos.opcionesProductos}
@@ -24,7 +25,7 @@ export function VistaLogistica() {
             alPrepararBulto={(bulto) => { setBultoNuevo(bulto.codigo); setPestania("bultos") }} />
         </TabsContent>
         <TabsContent value="bultos">
-          <PanelBultos key={bultoNuevo ?? "inicial"} opcionesLocales={catalogos.opcionesLocales}
+          <PanelBultos key={bultoNuevo ?? "inicial"} ambito="cd" opcionesLocales={catalogos.opcionesLocales}
             nombreSucursal={catalogos.nombreSucursal} seleccionInicial={bultoNuevo} />
         </TabsContent>
       </Tabs>

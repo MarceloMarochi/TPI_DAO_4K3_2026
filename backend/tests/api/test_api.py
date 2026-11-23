@@ -90,6 +90,51 @@ class TestCatalogos:
     def test_campos_desconocidos_rechazados(self, cliente):
         respuesta = cliente.post("/api/proveedores", json={"codigo": "X", "nombre": "Y", "es_cd": True})
         assert respuesta.status_code == 422
+        assert respuesta.json()["detalles"][0]["mensaje"] == "es_cd: no es un dato admitido"
+
+
+class TestMensajesDeValidacionEnCastellano:
+    """Los errores de estructura (Pydantic) llegan en castellano y con el nombre del campo."""
+
+    def _mensajes(self, respuesta):
+        assert respuesta.status_code == 422
+        return [d["mensaje"] for d in respuesta.json()["detalles"]]
+
+    def test_importe_invalido(self, cliente):
+        respuesta = cliente.post("/api/productos", json={
+            "codigo": "P099", "nombre": "X", "categoria": "C", "proveedor_codigo": "PRV01",
+            "precio": "1500,50", "costo_referencia": "1"})
+        assert self._mensajes(respuesta) == [
+            "precio: debe ser un número; usá punto para los decimales (por ejemplo 1500.50)"]
+
+    def test_campo_obligatorio(self, cliente):
+        assert self._mensajes(cliente.post("/api/proveedores", json={"codigo": "X"})) == ["nombre: es obligatorio"]
+
+    def test_cantidad_no_entera_y_no_positiva(self, cliente):
+        ingreso = {"numero": "I-1", "producto_codigo": "P001", "proveedor_codigo": "PRV01", "costo_unitario": "1"}
+        assert self._mensajes(cliente.post("/api/ingresos", json={**ingreso, "cantidad": 0})) == [
+            "cantidad: debe ser mayor que 0"]
+        assert self._mensajes(cliente.post("/api/ingresos", json={**ingreso, "cantidad": "5"})) == [
+            "cantidad: debe ser un número entero"]
+
+    def test_linea_de_una_lista(self, cliente):
+        respuesta = cliente.post("/api/ventas/cotizacion", json={
+            "local_codigo": "L01", "medio_codigo": "EFECTIVO",
+            "items": [{"producto_codigo": "P001", "cantidad": 1}, {"producto_codigo": "P002", "cantidad": 1.5}]})
+        assert self._mensajes(respuesta) == ["cantidad (línea 2): debe ser un número entero"]
+        assert respuesta.json()["detalles"][0]["campo"] == "items.1.cantidad"
+
+    def test_fecha_y_valores_permitidos(self, cliente):
+        assert self._mensajes(cliente.get("/api/reportes/ventas?desde=hoy&hasta=2026-11-23")) == [
+            "desde: debe ser una fecha con formato AAAA-MM-DD"]
+        respuesta = cliente.post("/api/importaciones/clientes", files={"archivo": ("a.csv", b"a")})
+        assert self._mensajes(respuesta) == [
+            "tipo: debe ser uno de estos valores: 'proveedores', 'sucursales', 'productos', 'ingresos' o 'minimos'"]
+
+    def test_validador_propio_no_se_duplica_el_campo(self, cliente):
+        respuesta = cliente.post("/api/ventas", json=venta(total_esperado="1.234"))
+        assert self._mensajes(respuesta) == [
+            "total_esperado: debe ser no negativo y tener como máximo dos decimales"]
 
     def test_minimo(self, cliente):
         respuesta = cliente.put("/api/existencias/L01/P001/minimo", json={"minimo": 30})
